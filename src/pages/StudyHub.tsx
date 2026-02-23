@@ -34,12 +34,13 @@ const StudyHub = () => {
 
     useEffect(() => {
         const init = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            setUser(user);
+            const { data: { user: currentUser } } = await supabase.auth.getUser();
+            setUser(currentUser);
 
-            if (groupId) {
+            if (groupId && currentUser) {
                 // Fetch group details
                 const { data: group } = await supabase.from('groups').select('*').eq('id', groupId).single();
+                if (!group) return;
                 setGroupInfo(group);
 
                 // Fetch members
@@ -56,7 +57,7 @@ const StudyHub = () => {
                 setMessages(initialMessages || []);
 
                 // Check if current user is creator
-                if (group.creator_id === user.id) {
+                if (group.creator_id === currentUser.id) {
                     setIsCreator(true);
                     fetchRequests(groupId);
                 }
@@ -87,7 +88,7 @@ const StudyHub = () => {
                         table: 'group_requests',
                         filter: `group_id=eq.${groupId}`
                     }, () => {
-                        if (group.creator_id === user.id) fetchRequests(groupId);
+                        if (group.creator_id === currentUser.id) fetchRequests(groupId);
                     })
                     .subscribe();
 
@@ -111,7 +112,7 @@ const StudyHub = () => {
             .from('chat_messages')
             .insert({
                 group_id: groupId,
-                sender_id: user.id,
+                sender_id: user!.id,
                 content: newMessage,
                 message_type: 'text'
             });
