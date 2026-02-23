@@ -1,0 +1,238 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { supabase } from '../lib/supabaseClient';
+import { useNavigate, useParams } from 'react-router-dom';
+import {
+    Phone,
+    Video,
+    MoreVertical,
+    Send,
+    Mic,
+    Paperclip,
+    Smile,
+    ChevronLeft,
+    Users,
+    Circle,
+    User
+} from 'lucide-react';
+
+const StudyHub = () => {
+    const { groupId } = useParams();
+    const navigate = useNavigate();
+    const [messages, setMessages] = useState<any[]>([]);
+    const [newMessage, setNewMessage] = useState('');
+    const [groupInfo, setGroupInfo] = useState<any>(null);
+    const [members, setMembers] = useState<any[]>([]);
+    const [user, setUser] = useState<any>(null);
+    const [isCalling, setIsCalling] = useState(false);
+    const scrollRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const init = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            setUser(user);
+
+            if (groupId) {
+                // Fetch group details
+                const { data: group } = await supabase.from('groups').select('*').eq('id', groupId).single();
+                setGroupInfo(group);
+
+                // Fetch members
+                const { data: mems } = await supabase.from('study_group_members').select('*, profiles(*)').eq('group_id', groupId);
+                setMembers(mems || []);
+
+                // Fetch real-time messages
+                const { data: initialMessages } = await supabase
+                    .from('chat_messages')
+                    .select('*, profiles(full_name, avatar_url)')
+                    .eq('group_id', groupId)
+                    .order('created_at', { ascending: true });
+
+                setMessages(initialMessages || []);
+
+                // Subscribe to new messages
+                const channel = supabase
+                    .channel(`group-${groupId}`)
+                    // @ts-ignore
+                    .on('postgres_changes', {
+                        event: 'INSERT',
+                        schema: 'public',
+                        table: 'chat_messages',
+                        filter: `group_id=eq.${groupId}`
+                    },
+                        async (payload: any) => {
+                            const { data: msgWithProfile } = await supabase
+                                .from('chat_messages')
+                                .select('*, profiles(full_name, avatar_url)')
+                                .eq('id', payload.new.id)
+                                .single();
+
+                            setMessages(prev => [...prev, msgWithProfile]);
+                        })
+                    .subscribe();
+
+                return () => {
+                    supabase.removeChannel(channel);
+                };
+            }
+        };
+        init();
+    }, [groupId]);
+
+    useEffect(() => {
+        scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages]);
+
+    const handleSendMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newMessage.trim() || !user || !groupId) return;
+
+        const { error } = await supabase
+            .from('chat_messages')
+            .insert({
+                group_id: groupId,
+                sender_id: user.id,
+                content: newMessage,
+                message_type: 'text'
+            });
+
+        if (!error) setNewMessage('');
+    };
+
+    const toggleCall = () => {
+        setIsCalling(!isCalling);
+    };
+
+    return (
+        <div className="flex-grow flex h-[calc(100vh-64px)] bg-gray-50 dark:bg-dark-bg transition-colors">
+            {/* Sidebar (Members) - Hidden on mobile */}
+            <div className="hidden md:flex flex-col w-72 bg-white dark:bg-gray-800 border-r border-gray-100 dark:border-gray-700">
+                <div className="p-6 border-b border-gray-100 dark:border-gray-700">
+                    <h2 className="text-xl font-bold text-dark dark:text-white flex items-center gap-2">
+                        <Users size={20} className="text-forest" /> Circle Members
+                    </h2>
+                </div>
+                <div className="flex-grow overflow-y-auto p-4 space-y-4">
+                    {members.map((member, i) => (
+                        <div key={i} className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer group">
+                            <div className="relative">
+                                {member.profiles?.avatar_url ? (
+                                    <img src={member.profiles.avatar_url} className="w-10 h-10 rounded-full object-cover" alt="" />
+                                ) : (
+                                    <div className="w-10 h-10 rounded-full bg-forest/10 flex items-center justify-center text-forest font-bold">
+                                        {member.profiles?.full_name?.charAt(0)}
+                                    </div>
+                                )}
+                                <Circle size={10} className="absolute bottom-0 right-0 text-green-500 fill-green-500 border-2 border-white dark:border-gray-800" />
+                            </div>
+                            <div className="flex-grow">
+                                <p className="text-sm font-bold text-dark dark:text-gray-100">{member.profiles?.full_name}</p>
+                                <p className="text-[10px] text-gray-400 capitalize">{member.role || 'Member'}</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Chat Area */}
+            <div className="flex-grow flex flex-col bg-white dark:bg-gray-900 relative">
+                {/* Chat Header */}
+                <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between shadow-sm">
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => navigate('/find-groups')} className="md:hidden text-gray-500"><ChevronLeft /></button>
+                        <div>
+                            <h3 className="text-lg font-bold text-dark dark:text-white">{groupInfo?.name || 'Study Circle'}</h3>
+                            <p className="text-xs text-green-500 flex items-center gap-1"><Circle size={8} className="fill-green-500" /> {members.length} active now</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={toggleCall}
+                            className={`p-2.5 rounded-full transition-all ${isCalling ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                        >
+                            <Phone size={20} />
+                        </button>
+                        <button className="p-2.5 rounded-full text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"><Video size={20} /></button>
+                        <button className="p-2.5 rounded-full text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"><MoreVertical size={20} /></button>
+                    </div>
+                </div>
+
+                {/* Messages List */}
+                <div className="flex-grow overflow-y-auto p-6 space-y-6">
+                    {messages.map((msg, i) => {
+                        const isOwn = msg.sender_id === user?.id;
+                        return (
+                            <div key={i} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+                                <div className={`flex gap-3 max-w-[80%] ${isOwn ? 'flex-row-reverse' : ''}`}>
+                                    {!isOwn && (
+                                        <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex-shrink-0 overflow-hidden mt-auto">
+                                            {msg.profiles?.avatar_url ? (
+                                                <img src={msg.profiles.avatar_url} className="w-full h-full object-cover" alt="" />
+                                            ) : (
+                                                <User className="w-full h-full p-1 text-gray-400" />
+                                            )}
+                                        </div>
+                                    )}
+                                    <div>
+                                        {!isOwn && <p className="text-[10px] text-gray-400 mb-1 ml-1">{msg.profiles?.full_name}</p>}
+                                        <div className={`p-4 rounded-2xl shadow-sm ${isOwn ? 'bg-forest text-white rounded-tr-none' : 'bg-gray-100 dark:bg-gray-800 text-dark dark:text-gray-100 rounded-tl-none'}`}>
+                                            <p className="text-sm leading-relaxed">{msg.content}</p>
+                                        </div>
+                                        <p className={`text-[10px] text-gray-300 mt-1 ${isOwn ? 'text-right' : 'text-left'}`}>
+                                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                    <div ref={scrollRef} />
+                </div>
+
+                {/* Voice Call Overlay (Simple Visualization) */}
+                {isCalling && (
+                    <div className="absolute inset-0 bg-forest/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center text-white animate-fade-in">
+                        <div className="w-32 h-32 rounded-full border-4 border-white/20 flex items-center justify-center mb-8 relative">
+                            <div className="absolute inset-0 rounded-full bg-white/10 animate-ping" />
+                            <Phone size={48} />
+                        </div>
+                        <h2 className="text-2xl font-bold mb-2">Joining Voice Hub...</h2>
+                        <p className="opacity-60 mb-12">Connecting with {groupInfo?.name} members</p>
+
+                        <div className="flex gap-6">
+                            <button className="w-16 h-16 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all"><Mic size={24} /></button>
+                            <button onClick={toggleCall} className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-all shadow-xl"><Phone size={24} className="rotate-[135deg]" /></button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Message Input */}
+                <div className="p-4 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800">
+                    <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
+                            <button type="button" className="p-2 text-gray-400 hover:text-forest transition-colors"><Paperclip size={20} /></button>
+                            <button type="button" className="p-2 text-gray-400 hover:text-forest transition-colors"><Smile size={20} /></button>
+                        </div>
+                        <div className="flex-grow flex items-center bg-gray-50 dark:bg-gray-800 rounded-2xl px-4 py-1 border border-gray-100 dark:border-gray-700 focus-within:ring-2 focus-within:ring-forest/20 transition-all">
+                            <input
+                                type="text"
+                                value={newMessage}
+                                onChange={e => setNewMessage(e.target.value)}
+                                placeholder="Type your message..."
+                                className="w-full bg-transparent py-3 outline-none dark:text-white text-sm"
+                            />
+                            <button type="button" className="text-gray-400 hover:text-forest"><Mic size={20} /></button>
+                        </div>
+                        <button
+                            type="submit"
+                            className="bg-forest text-white p-3.5 rounded-2xl hover:scale-105 transition-transform shadow-lg shadow-green-200 dark:shadow-none"
+                        >
+                            <Send size={20} />
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default StudyHub;
