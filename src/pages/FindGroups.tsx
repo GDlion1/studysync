@@ -309,17 +309,24 @@ const FindGroups = () => {
                                                 <span className="text-xs font-bold text-gray-400">Private</span>
                                             </div>
                                             <button
-                                                onClick={() => !isJoined && !isRequested && handleRequestPrivate(group.id)}
-                                                disabled={isJoined || isRequested || isProcessing}
-                                                className={`px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${isJoined ? 'bg-forest/10 text-forest cursor-default' :
+                                                onClick={() => {
+                                                    if (group.creator_id === user?.id || isJoined) {
+                                                        navigate(`/chat/${group.id}`);
+                                                    } else if (!isRequested && !isProcessing) {
+                                                        handleRequestPrivate(group.id);
+                                                    }
+                                                }}
+                                                disabled={(!isJoined && isRequested && group.creator_id !== user?.id) || isProcessing}
+                                                className={`px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${(isJoined || group.creator_id === user?.id) ? 'bg-forest/10 text-forest' :
                                                     isRequested ? 'bg-amber-50 text-amber-600 cursor-default border border-amber-200' :
                                                         'bg-dark text-white hover:bg-black transform active:scale-95 shadow-lg shadow-gray-200'
                                                     }`}
                                             >
                                                 {isProcessing ? <Loader2 className="animate-spin" size={16} /> :
-                                                    isJoined ? 'Joined ✔' :
-                                                        isRequested ? 'Pending...' :
-                                                            'Request Access'}
+                                                    group.creator_id === user?.id ? 'Manage Circle' :
+                                                        isJoined ? 'Joined ✔' :
+                                                            isRequested ? 'Pending...' :
+                                                                'Request Access'}
                                             </button>
                                         </div>
                                     </div>
