@@ -1,3 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #F9FAFB;
+}
+
 .glass-morphism {
   background: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(10px);
