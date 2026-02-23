@@ -24,6 +24,9 @@ const StudyHub = () => {
     const [members, setMembers] = useState<any[]>([]);
     const [user, setUser] = useState<any>(null);
     const [isCalling, setIsCalling] = useState(false);
+    const [requests, setRequests] = useState<any[]>([]);
+    const [isCreator, setIsCreator] = useState(false);
+    const [activeTab, setActiveTab] = useState<'members' | 'requests'>('members');
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -49,6 +52,12 @@ const StudyHub = () => {
 
                 setMessages(initialMessages || []);
 
+                // Check if current user is creator
+                if (group.creator_id === user.id) {
+                    setIsCreator(true);
+                    fetchRequests(groupId);
+                }
+
                 // Subscribe to new messages
                 const channel = supabase
                     .channel(`group-${groupId}`)
@@ -68,6 +77,15 @@ const StudyHub = () => {
 
                             setMessages(prev => [...prev, msgWithProfile]);
                         })
+                    // Add subscription for requests if creator
+                    .on('postgres_changes', {
+                        event: 'INSERT',
+                        schema: 'public',
+                        table: 'group_requests',
+                        filter: `group_id=eq.${groupId}`
+                    }, () => {
+                        if (group.creator_id === user.id) fetchRequests(groupId);
+                    })
                     .subscribe();
 
                 return () => {
@@ -98,38 +116,129 @@ const StudyHub = () => {
         if (!error) setNewMessage('');
     };
 
+    const fetchRequests = async (id: string) => {
+        const { data } = await supabase
+            .from('group_requests')
+            .select('*, profiles(*)')
+            .eq('group_id', id)
+            .eq('status', 'pending');
+        setRequests(data || []);
+    };
+
+    const handleRequest = async (requestId: string, userId: string, status: 'approved' | 'rejected') => {
+        try {
+            const { error: updateError } = await supabase
+                .from('group_requests')
+                .update({ status })
+                .eq('id', requestId);
+
+            if (updateError) throw updateError;
+
+            if (status === 'approved') {
+                const { error: joinError } = await supabase
+                    .from('study_group_members')
+                    .insert({ group_id: groupId, user_id: userId });
+
+                if (joinError) throw joinError;
+
+                // Refresh members
+                const { data: mems } = await supabase.from('study_group_members').select('*, profiles(*)').eq('group_id', groupId);
+                setMembers(mems || []);
+            }
+
+            setRequests(prev => prev.filter(r => r.id !== requestId));
+        } catch (error: any) {
+            alert(error.message);
+        }
+    };
+
     const toggleCall = () => {
         setIsCalling(!isCalling);
     };
 
     return (
         <div className="flex-grow flex h-[calc(100vh-64px)] bg-gray-50 dark:bg-dark-bg transition-colors">
-            {/* Sidebar (Members) - Hidden on mobile */}
-            <div className="hidden md:flex flex-col w-72 bg-white dark:bg-gray-800 border-r border-gray-100 dark:border-gray-700">
-                <div className="p-6 border-b border-gray-100 dark:border-gray-700">
-                    <h2 className="text-xl font-bold text-dark dark:text-white flex items-center gap-2">
-                        <Users size={20} className="text-forest" /> Circle Members
-                    </h2>
+            {/* Sidebar (Members & Requests) - Hidden on mobile */}
+            <div className="hidden md:flex flex-col w-80 bg-white dark:bg-gray-800 border-r border-gray-100 dark:border-gray-700">
+                <div className="p-4 border-b border-gray-100 dark:border-gray-700">
+                    <div className="flex bg-gray-50 dark:bg-gray-900 p-1 rounded-xl">
+                        <button
+                            onClick={() => setActiveTab('members')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'members' ? 'bg-white dark:bg-gray-800 text-forest shadow-sm' : 'text-gray-400'}`}
+                        >
+                            <Users size={16} /> Members ({members.length})
+                        </button>
+                        {isCreator && (
+                            <button
+                                onClick={() => setActiveTab('requests')}
+                                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'requests' ? 'bg-white dark:bg-gray-800 text-forest shadow-sm' : 'text-gray-400'}`}
+                            >
+                                <Plus size={16} /> Requests {requests.length > 0 && <span className="w-5 h-5 flex items-center justify-center bg-red-500 text-white rounded-full text-[10px]">{requests.length}</span>}
+                            </button>
+                        )}
+                    </div>
                 </div>
-                <div className="flex-grow overflow-y-auto p-4 space-y-4">
-                    {members.map((member, i) => (
-                        <div key={i} className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer group">
-                            <div className="relative">
-                                {member.profiles?.avatar_url ? (
-                                    <img src={member.profiles.avatar_url} className="w-10 h-10 rounded-full object-cover" alt="" />
-                                ) : (
-                                    <div className="w-10 h-10 rounded-full bg-forest/10 flex items-center justify-center text-forest font-bold">
-                                        {member.profiles?.full_name?.charAt(0)}
+                <div className="flex-grow overflow-y-auto p-4">
+                    {activeTab === 'members' ? (
+                        <div className="space-y-4">
+                            {members.map((member, i) => (
+                                <div key={i} className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer group">
+                                    <div className="relative">
+                                        {member.profiles?.avatar_url ? (
+                                            <img src={member.profiles.avatar_url} className="w-10 h-10 rounded-full object-cover" alt="" />
+                                        ) : (
+                                            <div className="w-10 h-10 rounded-full bg-forest/10 flex items-center justify-center text-forest font-bold">
+                                                {member.profiles?.full_name?.charAt(0)}
+                                            </div>
+                                        )}
+                                        <Circle size={10} className="absolute bottom-0 right-0 text-green-500 fill-green-500 border-2 border-white dark:border-gray-800" />
                                     </div>
-                                )}
-                                <Circle size={10} className="absolute bottom-0 right-0 text-green-500 fill-green-500 border-2 border-white dark:border-gray-800" />
-                            </div>
-                            <div className="flex-grow">
-                                <p className="text-sm font-bold text-dark dark:text-gray-100">{member.profiles?.full_name}</p>
-                                <p className="text-[10px] text-gray-400 capitalize">{member.role || 'Member'}</p>
-                            </div>
+                                    <div className="flex-grow">
+                                        <p className="text-sm font-bold text-dark dark:text-gray-100">{member.profiles?.full_name}</p>
+                                        <p className="text-[10px] text-gray-400 capitalize">{member.role || 'Member'}</p>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
-                    ))}
+                    ) : (
+                        <div className="space-y-4">
+                            {requests.length > 0 ? requests.map((req, i) => (
+                                <div key={i} className="p-4 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-700 space-y-3">
+                                    <div className="flex items-center gap-3">
+                                        {req.profiles?.avatar_url ? (
+                                            <img src={req.profiles.avatar_url} className="w-10 h-10 rounded-full object-cover" alt="" />
+                                        ) : (
+                                            <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-400">
+                                                <User size={20} />
+                                            </div>
+                                        )}
+                                        <div className="flex-grow">
+                                            <p className="text-sm font-bold text-dark dark:text-white">{req.profiles?.full_name}</p>
+                                            <p className="text-[10px] text-gray-400 truncate">{req.profiles?.usn || 'Requester'}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2 text-[10px] font-black uppercase tracking-wider">
+                                        <button
+                                            onClick={() => handleRequest(req.id, req.user_id, 'approved')}
+                                            className="flex-1 py-2 bg-forest text-white rounded-lg hover:bg-green-700"
+                                        >
+                                            Approve
+                                        </button>
+                                        <button
+                                            onClick={() => handleRequest(req.id, req.user_id, 'rejected')}
+                                            className="flex-1 py-2 bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg"
+                                        >
+                                            Decline
+                                        </button>
+                                    </div>
+                                </div>
+                            )) : (
+                                <div className="text-center py-12">
+                                    <p className="text-xs text-gray-400 italic">No pending requests</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
 
