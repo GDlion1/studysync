@@ -12,7 +12,8 @@ import {
     ChevronLeft,
     Users,
     Circle,
-    User
+    User,
+    X
 } from 'lucide-react';
 
 const StudyHub = () => {
@@ -27,6 +28,7 @@ const StudyHub = () => {
     const [requests, setRequests] = useState<any[]>([]);
     const [isCreator, setIsCreator] = useState(false);
     const [activeTab, setActiveTab] = useState<'members' | 'requests'>('members');
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -157,9 +159,26 @@ const StudyHub = () => {
     };
 
     return (
-        <div className="flex-grow flex h-[calc(100vh-64px)] bg-gray-50 dark:bg-dark-bg transition-colors">
-            {/* Sidebar (Members & Requests) - Hidden on mobile */}
-            <div className="hidden md:flex flex-col w-80 bg-white dark:bg-gray-800 border-r border-gray-100 dark:border-gray-700">
+        <div className="flex-grow flex h-[calc(100vh-64px)] bg-gray-50 dark:bg-dark-bg transition-colors relative overflow-hidden">
+            {/* Backdrop for mobile */}
+            {isSidebarOpen && (
+                <div
+                    className="fixed inset-0 bg-black/50 z-40 md:hidden"
+                    onClick={() => setIsSidebarOpen(false)}
+                />
+            )}
+            {/* Sidebar (Members & Requests) */}
+            <div className={`
+                fixed inset-y-0 left-0 z-50 w-80 bg-white dark:bg-gray-800 border-r border-gray-100 dark:border-gray-700 transform transition-transform duration-300 ease-in-out flex flex-col
+                ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+                md:relative md:translate-x-0
+            `}>
+                <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
+                    <h2 className="font-bold text-dark dark:text-white">Circle Details</h2>
+                    <button onClick={() => setIsSidebarOpen(false)} className="md:hidden p-2 text-gray-400 hover:text-dark dark:hover:text-white">
+                        <X size={20} />
+                    </button>
+                </div>
                 <div className="p-4 border-b border-gray-100 dark:border-gray-700">
                     <div className="flex bg-gray-50 dark:bg-gray-900 p-1 rounded-xl">
                         <button
@@ -247,13 +266,19 @@ const StudyHub = () => {
                 {/* Chat Header */}
                 <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between shadow-sm">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => navigate('/find-groups')} className="md:hidden text-gray-500"><ChevronLeft /></button>
-                        <div>
+                        <button onClick={() => navigate('/find-groups')} className="text-gray-500"><ChevronLeft /></button>
+                        <div className="cursor-pointer" onClick={() => setIsSidebarOpen(true)}>
                             <h3 className="text-lg font-bold text-dark dark:text-white">{groupInfo?.name || 'Study Circle'}</h3>
                             <p className="text-xs text-green-500 flex items-center gap-1"><Circle size={8} className="fill-green-500" /> {members.length} active now</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setIsSidebarOpen(true)}
+                            className="p-2.5 rounded-full text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 md:hidden"
+                        >
+                            <Users size={20} />
+                        </button>
                         <button
                             onClick={toggleCall}
                             className={`p-2.5 rounded-full transition-all ${isCalling ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
