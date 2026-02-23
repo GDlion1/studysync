@@ -13,7 +13,8 @@ import {
     Users,
     Circle,
     User,
-    X
+    X,
+    Plus
 } from 'lucide-react';
 
 const StudyHub = () => {
