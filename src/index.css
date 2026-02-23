@@ -1,6 +1,32 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #22c55e;
+  --color-secondary: #15803d;
+  --color-accent: #86efac;
+  --color-forest: #2d9f2d;
+  --color-neon: #39FF14;
+  --color-dark: #052e16;
+  --color-light: #f0fdf4;
+  --color-dark-bg: #022c22;
+  --color-dark-card: #064e3b;
+
+  --font-sans: "Inter", "system-ui", "sans-serif";
+
+  --animate-fade-in: fadeIn 0.5s ease-out forwards;
+
+  @keyframes fadeIn {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
 
 body {
   font-family: 'Inter', sans-serif;
