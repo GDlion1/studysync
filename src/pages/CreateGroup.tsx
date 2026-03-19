@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { Users, Lock, FileText, ChevronRight, Loader2, Languages, Laptop } from 'lucide-react';
 
@@ -10,24 +9,21 @@ const CreateGroup = () => {
     const [formData, setFormData] = useState({
         name: '',
         description: '',
-        mother_tongue: '',
+        mother_tongue: 'English',
         subject_code: ''
     });
 
     useEffect(() => {
-        const fetchUser = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                setUser(user);
-                const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-                if (prof) {
-                    setFormData(prev => ({ ...prev, mother_tongue: prof.mother_tongue || 'English' }));
-                }
-            } else {
-                navigate('/signin');
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+            const parsedUser = JSON.parse(storedUser);
+            setUser(parsedUser);
+            if (parsedUser.mother_tongue) {
+                setFormData(prev => ({ ...prev, mother_tongue: parsedUser.mother_tongue }));
             }
-        };
-        fetchUser();
+        } else {
+            navigate('/signin');
+        }
     }, [navigate]);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -35,32 +31,26 @@ const CreateGroup = () => {
         setLoading(true);
 
         try {
-            const { data: group, error: groupError } = await supabase
-                .from('groups')
-                .insert({
+            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+            const response = await fetch(`${API_URL}/api/groups`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
                     name: formData.name,
                     description: formData.description,
                     type: 'private',
-                    creator_id: user.id,
+                    creator_id: user.id || user._id, // Support whichever format we saved in localStorage
                     mother_tongue: formData.mother_tongue,
-                    subject_code: formData.subject_code || null
+                    subject_code: formData.subject_code || ''
                 })
-                .select()
-                .single();
+            });
 
-            if (groupError) throw groupError;
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.error || 'Failed to create group');
+            }
 
-            // Add creator as a member
-            const { error: memberError } = await supabase
-                .from('study_group_members')
-                .insert({
-                    group_id: group.id,
-                    user_id: user.id,
-                    role: 'creator'
-                });
-
-            if (memberError) throw memberError;
-
+            // Immediately navigate after creation
             navigate('/find-groups');
         } catch (error: any) {
             alert('Error creating group: ' + error.message);
@@ -70,9 +60,9 @@ const CreateGroup = () => {
     };
 
     return (
-        <div className="flex-grow bg-gray-50 dark:bg-dark-bg py-12 px-4">
+        <div className="flex-grow bg-gray-50 dark:bg-dark-bg py-12 px-4 transition-colors duration-300">
             <div className="max-w-xl mx-auto">
-                <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
+                <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
                     <div className="bg-forest p-8 text-white relative h-40 flex flex-col justify-end">
                         <div className="absolute top-8 right-8 text-white/20">
                             <Users size={80} />
@@ -90,7 +80,7 @@ const CreateGroup = () => {
                                 <input
                                     type="text"
                                     required
-                                    className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700 border border-transparent focus:border-forest outline-none transition-all dark:text-white"
+                                    className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700 border border-transparent focus:border-forest outline-none transition-all dark:text-white focus:ring-2 focus:ring-forest/20"
                                     placeholder="e.g. Quiet Logic Solvers"
                                     value={formData.name}
                                     onChange={e => setFormData({ ...formData, name: e.target.value })}
@@ -102,7 +92,7 @@ const CreateGroup = () => {
                                     <FileText size={16} className="text-forest" /> Description
                                 </label>
                                 <textarea
-                                    className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700 border border-transparent focus:border-forest outline-none transition-all dark:text-white resize-none"
+                                    className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700 border border-transparent focus:border-forest outline-none transition-all dark:text-white focus:ring-2 focus:ring-forest/20 resize-none"
                                     rows={3}
                                     placeholder="What's this group about? (introvert-friendly, deep focus, etc.)"
                                     value={formData.description}
@@ -116,7 +106,7 @@ const CreateGroup = () => {
                                         <Languages size={16} className="text-forest" /> Primary Language
                                     </label>
                                     <select
-                                        className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700 border border-transparent focus:border-forest outline-none transition-all dark:text-white appearance-none"
+                                        className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700 border border-transparent focus:border-forest outline-none transition-all dark:text-white focus:ring-2 focus:ring-forest/20 appearance-none"
                                         value={formData.mother_tongue}
                                         onChange={e => setFormData({ ...formData, mother_tongue: e.target.value })}
                                     >
@@ -135,7 +125,7 @@ const CreateGroup = () => {
                                     </label>
                                     <input
                                         type="text"
-                                        className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700 border border-transparent focus:border-forest outline-none transition-all dark:text-white"
+                                        className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700 border border-transparent focus:border-forest outline-none transition-all dark:text-white focus:ring-2 focus:ring-forest/20"
                                         placeholder="e.g. 21CS31"
                                         value={formData.subject_code}
                                         onChange={e => setFormData({ ...formData, subject_code: e.target.value })}
@@ -148,7 +138,7 @@ const CreateGroup = () => {
                             <button
                                 type="submit"
                                 disabled={loading}
-                                className="w-full bg-forest text-white py-4 rounded-2xl font-bold text-lg shadow-xl shadow-green-200 dark:shadow-none hover:bg-green-700 transition-all flex items-center justify-center gap-2 transform active:scale-95"
+                                className="w-full bg-forest text-white py-4 rounded-2xl font-bold text-lg shadow-xl shadow-green-200 dark:shadow-green-900/20 hover:bg-green-700 transition-all flex items-center justify-center gap-2 transform active:scale-95 disabled:opacity-50"
                             >
                                 {loading ? <Loader2 className="animate-spin" size={24} /> : <>Create Group <ChevronRight size={20} /></>}
                             </button>

@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { vtuBranches, vtuSemesters, vtuSubjects } from '../data/vtuData';
-import { supabase } from '../lib/supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Users, Lock, MessageSquare, Plus, Globe, Languages } from 'lucide-react';
 
@@ -18,36 +17,24 @@ const FindGroups = () => {
     const [requestedGroups, setRequestedGroups] = useState<string[]>([]);
     const [joining, setJoining] = useState<string | null>(null);
 
-    // Fetch User and Memberships
+    // Completely Native Database Fetch!
     useEffect(() => {
         const fetchUserAndGroups = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            setUser(user);
+            const storedUser = localStorage.getItem('user');
+            if (storedUser) {
+                const parsedUser = JSON.parse(storedUser);
+                setUser(parsedUser);
+                setProfile(parsedUser); // Since we attached profile inside 'user' earlier
 
-            if (user) {
-                // Fetch Profile
-                const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-                setProfile(prof);
-
-                // Fetch Memberships
-                const { data: memberships } = await supabase
-                    .from('study_group_members')
-                    .select('group_id')
-                    .eq('user_id', user.id);
-
-                if (memberships) {
-                    setJoinedGroups(memberships.map(m => m.group_id));
-                }
-
-                // Fetch Requests
-                const { data: reqs } = await supabase
-                    .from('group_requests')
-                    .select('group_id')
-                    .eq('user_id', user.id)
-                    .eq('status', 'pending');
-
-                if (reqs) {
-                    setRequestedGroups(reqs.map(r => r.group_id));
+                try {
+                    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+                    const response = await fetch(`${API_URL}/api/groups/memberships/${parsedUser.id}`);
+                    const memberships = await response.json();
+                    if (memberships) {
+                        setJoinedGroups(memberships.map((m: any) => m.group_id));
+                    }
+                } catch (error) {
+                    console.error('Failed fetching memberships:', error);
                 }
             }
         };
@@ -56,9 +43,9 @@ const FindGroups = () => {
 
     useEffect(() => {
         if (view === 'universal') {
-            const branchData = vtuSubjects[selectedBranch];
+            const branchData = vtuSubjects[selectedBranch as keyof typeof vtuSubjects];
             if (branchData) {
-                const semSubjects = branchData[selectedSem] || [];
+                const semSubjects = branchData[selectedSem as keyof typeof branchData] || [];
                 const subjectsWithSpots = semSubjects.map(sub => ({
                     ...sub,
                     spots: Math.floor(Math.random() * 5) + 1
@@ -73,22 +60,16 @@ const FindGroups = () => {
     }, [selectedBranch, selectedSem, view]);
 
     const fetchPrivateGroups = async () => {
-        const { data } = await supabase
-            .from('groups')
-            .select('*, profiles(full_name, avatar_url, mother_tongue)')
-            .eq('type', 'private');
-
-        if (data) {
-            // Sort by mother tongue match
-            const sorted = [...data].sort((a, b) => {
-                if (profile?.mother_tongue) {
-                    const matchA = a.mother_tongue === profile.mother_tongue ? 1 : 0;
-                    const matchB = b.mother_tongue === profile.mother_tongue ? 1 : 0;
-                    return matchB - matchA;
-                }
-                return 0;
-            });
-            setPrivateGroups(sorted);
+        try {
+            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+            const response = await fetch(`${API_URL}/api/groups?type=private`);
+            const data = await response.json();
+            
+            if (data && !data.error) {
+                setPrivateGroups(data);
+            }
+        } catch (error) {
+            console.error('Error fetching private groups:', error);
         }
     };
 
@@ -101,44 +82,17 @@ const FindGroups = () => {
         setJoining(subject.code);
 
         try {
-            // 1. Ensure the universal group exists in 'groups' table
-            let { data: group } = await supabase
-                .from('groups')
-                .select('id')
-                .eq('subject_code', subject.code)
-                .eq('type', 'universal')
-                .single();
+            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+            const response = await fetch(`${API_URL}/api/groups/join`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ groupId: subject.code, userId: user.id })
+            });
 
-            if (!group) {
-                const { data: newGroup, error: createError } = await supabase
-                    .from('groups')
-                    .insert({
-                        name: subject.name,
-                        subject_code: subject.code,
-                        type: 'universal',
-                        description: `Official doubt solving group for ${subject.name}`
-                    })
-                    .select()
-                    .single();
-
-                if (createError) throw createError;
-                group = newGroup;
-            }
-
-            if (group) {
-                // 2. Add member
-                const { error } = await supabase
-                    .from('study_group_members')
-                    .insert({
-                        group_id: group.id,
-                        user_id: user.id
-                    });
-
-                if (error && !error.message.includes('unique')) throw error;
-
-                setJoinedGroups(prev => [...prev, group.id]);
-                navigate(`/chat/${group.id}`);
-            }
+            if (!response.ok) throw new Error('Failed to join');
+            
+            setJoinedGroups(prev => [...prev, subject.code]);
+            navigate(`/chat/${subject.code}`);
         } catch (error: any) {
             console.error('Error joining group:', error);
             alert('Failed to join group: ' + error.message);
@@ -156,16 +110,14 @@ const FindGroups = () => {
         setJoining(groupId);
 
         try {
-            const { error } = await supabase
-                .from('group_requests')
-                .insert({
-                    group_id: groupId,
-                    user_id: user.id,
-                    status: 'pending'
-                });
+            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+            const response = await fetch(`${API_URL}/api/groups/request`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ groupId, userId: user.id })
+            });
 
-            if (error) throw error;
-
+            if (!response.ok) throw new Error('Failed to request');
             setRequestedGroups(prev => [...prev, groupId]);
         } catch (error: any) {
             console.error('Error requesting access:', error);
@@ -299,7 +251,7 @@ const FindGroups = () => {
                                             </span>
                                         </div>
                                         <h3 className="text-xl font-bold text-dark dark:text-gray-100 mb-1">{group.name}</h3>
-                                        <p className="text-gray-400 text-xs mb-3 flex items-center gap-1">Led by <span className="text-forest font-medium">{group.profiles?.full_name}</span></p>
+                                        <p className="text-gray-400 text-xs mb-3 flex items-center gap-1">Led by <span className="text-forest font-medium">{group.profiles?.full_name || 'Admin'}</span></p>
                                         <p className="text-gray-500 dark:text-gray-400 text-sm mb-6 line-clamp-2">
                                             {group.description || "A cozy quiet study space for focused learning."}
                                         </p>

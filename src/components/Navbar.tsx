@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Sun, Moon, Menu, X, User as UserIcon } from 'lucide-react';
-import { supabase } from '../lib/supabaseClient';
 
 const Navbar = () => {
+    const navigate = useNavigate();
     const [darkMode, setDarkMode] = useState(() => {
         if (typeof window !== 'undefined') {
             return localStorage.getItem('theme') === 'dark' ||
@@ -28,28 +28,33 @@ const Navbar = () => {
     }, [darkMode]);
 
     useEffect(() => {
-        // Check initial session
-        supabase.auth.getUser().then(({ data: { user } }) => {
-            setUser(user);
-        });
-
-        // Listen for auth changes
-        const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user ?? null);
-        });
-
-        return () => {
-            authListener.subscription.unsubscribe();
+        // Check session from localStorage instead of Supabase
+        const checkAuth = () => {
+            const storedUser = localStorage.getItem('user');
+            if (storedUser) {
+                try {
+                    setUser(JSON.parse(storedUser));
+                } catch {
+                    setUser(null);
+                }
+            } else {
+                setUser(null);
+            }
         };
-    }, []);
+
+        checkAuth();
+    }, [location.pathname]); // Re-check when route changes
 
     const toggleTheme = () => {
         setDarkMode(!darkMode);
     };
 
-    const handleSignOut = async () => {
-        await supabase.auth.signOut();
+    const handleSignOut = () => {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setUser(null);
         setIsProfileMenuOpen(false);
+        navigate('/');
     };
 
     const navLinks = [
@@ -103,8 +108,8 @@ const Navbar = () => {
                                     className="flex items-center gap-2 focus:outline-none"
                                 >
                                     <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden border-2 border-transparent hover:border-forest transition-all">
-                                        {user.user_metadata?.avatar_url ? (
-                                            <img src={user.user_metadata.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                                        {user.avatar_url ? (
+                                            <img src={user.avatar_url} alt="Profile" className="w-full h-full object-cover" />
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
                                                 <UserIcon size={20} />
@@ -116,7 +121,7 @@ const Navbar = () => {
                                 {isProfileMenuOpen && (
                                     <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 py-1 animate-fade-in">
                                         <Link
-                                            to="/profile-setup"
+                                            to="/profile"
                                             className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
                                             onClick={() => setIsProfileMenuOpen(false)}
                                         >
@@ -181,18 +186,18 @@ const Navbar = () => {
                                 <>
                                     <div className="flex items-center gap-3 px-3 py-2 mb-2">
                                         <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
-                                            {user.user_metadata?.avatar_url ? (
-                                                <img src={user.user_metadata.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                                            {user.avatar_url ? (
+                                                <img src={user.avatar_url} alt="Profile" className="w-full h-full object-cover" />
                                             ) : (
                                                 <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
                                                     <UserIcon size={16} />
                                                 </div>
                                             )}
                                         </div>
-                                        <span className="text-gray-900 dark:text-white font-medium">{user.user_metadata?.full_name || 'User'}</span>
+                                        <span className="text-gray-900 dark:text-white font-medium">{user.full_name || 'User'}</span>
                                     </div>
                                     <Link
-                                        to="/profile-setup"
+                                        to="/profile"
                                         onClick={() => setIsMenuOpen(false)}
                                         className="block w-full text-center px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 mb-2"
                                     >

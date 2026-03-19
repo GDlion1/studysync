@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import './index.css';
 import { createRoot } from 'react-dom/client';
 import { HashRouter as Router, Routes, Route } from 'react-router-dom';
@@ -45,5 +46,10 @@ const App = () => {
 const container = document.getElementById('root');
 if (container) {
     const root = createRoot(container);
-    root.render(<App />);
+    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '1234567890-moco.apps.googleusercontent.com'; // User needs to replace this
+    root.render(
+        <GoogleOAuthProvider clientId={googleClientId}>
+            <App />
+        </GoogleOAuthProvider>
+    );
 }

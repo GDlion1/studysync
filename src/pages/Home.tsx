@@ -1,49 +1,30 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient';
 
 const Home = () => {
     const [user, setUser] = useState<any>(null);
     const [greeting, setGreeting] = useState("🚀 Revolutionizing Student Collaboration");
 
     useEffect(() => {
-        // Check current session
-        const getUserAndProfile = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            setUser(user);
-
-            if (user) {
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('gender')
-                    .eq('id', user.id)
-                    .single();
-
-                if (profile?.gender === 'Male') {
-                    setGreeting("👑 What's up, King? Ready to grind?");
-                } else if (profile?.gender === 'Female') {
-                    setGreeting("✨ Hey Queen! Let's slay this study session!");
-                } else {
-                    setGreeting("🚀 Let's get this bread, fam!");
+        // Read from localStorage instead of Supabase
+        const checkAuth = () => {
+            const storedUser = localStorage.getItem('user');
+            if (storedUser) {
+                try {
+                    const parsedUser = JSON.parse(storedUser);
+                    setUser(parsedUser);
+                    
+                    // We don't have gender in our new Schema, but you can add it later.
+                    setGreeting(`✨ Welcome back, ${parsedUser.full_name.split(' ')[0]}! Let's crush it!`);
+                } catch {
+                    // Invalid JSON
                 }
             } else {
                 setGreeting("🚀 Revolutionizing Student Collaboration");
             }
         };
 
-        getUserAndProfile();
-
-        // Listen for auth changes
-        const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user ?? null);
-            if (!session) {
-                setGreeting("🚀 Revolutionizing Student Collaboration");
-            }
-        });
-
-        return () => {
-            authListener.subscription.unsubscribe();
-        };
+        checkAuth();
     }, []);
 
     return (

@@ -8,9 +8,7 @@ import {
     Clock,
     Coffee,
     MessageCircle,
-    Lock,
     Loader2,
-    Check,
     X,
     Bell,
     Play,
@@ -30,7 +28,6 @@ const Schedule = () => {
     const [userGroups, setUserGroups] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [user, setUser] = useState<any>(null);
-    const [profile, setProfile] = useState<any>(null);
 
     // Pomodoro Timer State
     const [timerRunning, setTimerRunning] = useState(false);
@@ -57,7 +54,7 @@ const Schedule = () => {
             setUser(user);
             if (user) {
                 const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-                setProfile(prof);
+
                 if (prof) {
                     setSelectedBranch(prof.branch || 'CSE');
                     setSelectedSem(prof.semester || 3);

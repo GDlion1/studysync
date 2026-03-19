@@ -14,7 +14,19 @@ import {
     Circle,
     User,
     X,
-    Plus
+    Plus,
+    Settings,
+    Trash2,
+    Save,
+    Info,
+    Loader2,
+    FileText,
+    Target,
+    Download,
+    CheckCircle2,
+    Clock,
+    File,
+    Image as ImageIcon
 } from 'lucide-react';
 
 const StudyHub = () => {
@@ -28,60 +40,103 @@ const StudyHub = () => {
     const [isCalling, setIsCalling] = useState(false);
     const [requests, setRequests] = useState<any[]>([]);
     const [isCreator, setIsCreator] = useState(false);
-    const [activeTab, setActiveTab] = useState<'members' | 'requests'>('members');
+    const [activeTab, setActiveTab] = useState<'members' | 'requests' | 'settings' | 'goals' | 'resources'>('members');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [editName, setEditName] = useState('');
+    const [editDescription, setEditDescription] = useState('');
+    const [inviteUSN, setInviteUSN] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const [isInviting, setIsInviting] = useState(false);
+    const [goals, setGoals] = useState<any[]>([]);
+    const [resources, setResources] = useState<any[]>([]);
+    const [newGoal, setNewGoal] = useState({ title: '', due_date: '', priority: 'medium' });
+    const [isUploading, setIsUploading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
+        let channel: any;
+
         const init = async () => {
+            setIsLoading(true);
             const { data: { user: currentUser } } = await supabase.auth.getUser();
             setUser(currentUser);
 
             if (groupId && currentUser) {
                 // Fetch group details
-                const { data: group } = await supabase.from('groups').select('*').eq('id', groupId).single();
-                if (!group) return;
+                const { data: group, error: groupErr } = await supabase.from('groups').select('*').eq('id', groupId).single();
+                if (groupErr || !group) {
+                    console.error('Error fetching group:', groupErr);
+                    setIsLoading(false);
+                    return;
+                }
                 setGroupInfo(group);
+                setEditName(group.name);
+                setEditDescription(group.description || '');
 
                 // Fetch members
                 const { data: mems } = await supabase.from('study_group_members').select('*, profiles(*)').eq('group_id', groupId);
                 setMembers(mems || []);
 
-                // Fetch real-time messages
-                const { data: initialMessages } = await supabase
+                // Fetch messages
+                const { data: initialMessages, error: msgErr } = await supabase
                     .from('chat_messages')
-                    .select('*, profiles(full_name, avatar_url)')
+                    .select('*, profiles!sender_id(full_name, avatar_url)')
                     .eq('group_id', groupId)
                     .order('created_at', { ascending: true });
 
+                if (msgErr) {
+                    console.error('Error fetching messages:', msgErr.message);
+                }
                 setMessages(initialMessages || []);
+                setIsLoading(false);
 
-                // Check if current user is creator
                 if (group.creator_id === currentUser.id) {
                     setIsCreator(true);
                     fetchRequests(groupId);
                 }
 
-                // Subscribe to new messages
-                const channel = supabase
-                    .channel(`group-${groupId}`)
-                    // @ts-ignore
+                // Fetch Goals and Resources
+                fetchGoals(groupId);
+                fetchResources(groupId);
+
+                // Subscribe to NEW messages
+                channel = supabase
+                    .channel(`room-${groupId}`)
                     .on('postgres_changes', {
-                        event: 'INSERT',
+                        event: '*',
                         schema: 'public',
                         table: 'chat_messages',
                         filter: `group_id=eq.${groupId}`
-                    },
-                        async (payload: any) => {
+                    }, async (payload: any) => {
+                        if (payload.eventType === 'INSERT') {
                             const { data: msgWithProfile } = await supabase
                                 .from('chat_messages')
-                                .select('*, profiles(full_name, avatar_url)')
+                                .select('*, profiles!sender_id(full_name, avatar_url)')
                                 .eq('id', payload.new.id)
                                 .single();
 
-                            setMessages(prev => [...prev, msgWithProfile]);
-                        })
-                    // Add subscription for requests if creator
+                            if (msgWithProfile) {
+                                setMessages(prev => {
+                                    if (prev.some(m => m.id === msgWithProfile.id)) return prev;
+                                    return [...prev, msgWithProfile];
+                                });
+                            }
+                        }
+                    })
+                    .on('postgres_changes', {
+                        event: '*',
+                        schema: 'public',
+                        table: 'group_goals',
+                        filter: `group_id=eq.${groupId}`
+                    }, () => fetchGoals(groupId))
+                    .on('postgres_changes', {
+                        event: '*',
+                        schema: 'public',
+                        table: 'study_resources',
+                        filter: `group_id=eq.${groupId}`
+                    }, () => fetchResources(groupId))
                     .on('postgres_changes', {
                         event: 'INSERT',
                         schema: 'public',
@@ -91,13 +146,14 @@ const StudyHub = () => {
                         if (group.creator_id === currentUser.id) fetchRequests(groupId);
                     })
                     .subscribe();
-
-                return () => {
-                    supabase.removeChannel(channel);
-                };
             }
         };
+
         init();
+
+        return () => {
+            if (channel) supabase.removeChannel(channel);
+        };
     }, [groupId]);
 
     useEffect(() => {
@@ -117,7 +173,11 @@ const StudyHub = () => {
                 message_type: 'text'
             });
 
-        if (!error) setNewMessage('');
+        if (error) {
+            alert('Failed to send: ' + error.message);
+        } else {
+            setNewMessage('');
+        }
     };
 
     const fetchRequests = async (id: string) => {
@@ -153,6 +213,163 @@ const StudyHub = () => {
             setRequests(prev => prev.filter(r => r.id !== requestId));
         } catch (error: any) {
             alert(error.message);
+        }
+    };
+
+    const handleRemoveMember = async (userId: string) => {
+        if (!window.confirm('Are you sure you want to remove this student?')) return;
+
+        try {
+            const { error } = await supabase
+                .from('study_group_members')
+                .delete()
+                .eq('group_id', groupId)
+                .eq('user_id', userId);
+
+            if (error) throw error;
+
+            setMembers(prev => prev.filter(m => m.user_id !== userId));
+        } catch (error: any) {
+            alert('Failed to remove member: ' + error.message);
+        }
+    };
+
+    const handleUpdateGroup = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSaving(true);
+        try {
+            const { error } = await supabase
+                .from('groups')
+                .update({ name: editName, description: editDescription })
+                .eq('id', groupId);
+
+            if (error) throw error;
+
+            setGroupInfo((prev: any) => ({ ...prev, name: editName, description: editDescription }));
+            alert('Circle details updated!');
+        } catch (error: any) {
+            alert('Update failed: ' + error.message);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleInvite = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!inviteUSN.trim()) return;
+        setIsInviting(true);
+        try {
+            // Find user by USN
+            const { data: targetUser, error: findError } = await supabase
+                .from('profiles')
+                .select('id, full_name')
+                .eq('usn', inviteUSN.trim())
+                .single();
+
+            if (findError || !targetUser) throw new Error('Student with this USN not found.');
+
+            // Check if already a member
+            const isAlreadyMember = members.some(m => m.user_id === targetUser.id);
+            if (isAlreadyMember) throw new Error('Student is already in this circle.');
+
+            // Add to members
+            const { error: addError } = await supabase
+                .from('study_group_members')
+                .insert({ group_id: groupId, user_id: targetUser.id });
+
+            if (addError) throw addError;
+
+            // Refresh members
+            const { data: mems } = await supabase.from('study_group_members').select('*, profiles(*)').eq('group_id', groupId);
+            setMembers(mems || []);
+            setInviteUSN('');
+            alert(`${targetUser.full_name} added to the circle!`);
+        } catch (error: any) {
+            alert(error.message);
+        } finally {
+            setIsInviting(false);
+        }
+    };
+
+    const fetchGoals = async (id: string) => {
+        const { data } = await supabase.from('group_goals').select('*').eq('group_id', id).order('due_date', { ascending: true });
+        setGoals(data || []);
+    };
+
+    const fetchResources = async (id: string) => {
+        const { data } = await supabase.from('study_resources').select('*, profiles(full_name)').eq('group_id', id).order('created_at', { ascending: false });
+        setResources(data || []);
+    };
+
+    const handleCreateGoal = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newGoal.title || !user) return;
+
+        const { error } = await supabase.from('group_goals').insert({
+            group_id: groupId,
+            title: newGoal.title,
+            due_date: newGoal.due_date || null,
+            priority: newGoal.priority,
+            created_by: user.id
+        });
+
+        if (error) alert(error.message);
+        else setNewGoal({ title: '', due_date: '', priority: 'medium' });
+    };
+
+    const handleUpdateGoalStatus = async (goalId: string, status: string) => {
+        const { error } = await supabase.from('group_goals').update({ status }).eq('id', goalId);
+        if (error) alert(error.message);
+    };
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !user || !groupId) return;
+
+        setIsUploading(true);
+        try {
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${Math.random()}.${fileExt}`;
+            const filePath = `${groupId}/${fileName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('resources')
+                .upload(filePath, file);
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('resources')
+                .getPublicUrl(filePath);
+
+            // Send as chat message attachment
+            const isImage = ['jpg', 'jpeg', 'png', 'gif'].includes(fileExt?.toLowerCase() || '');
+            const isPdf = fileExt?.toLowerCase() === 'pdf';
+
+            const { error: msgError } = await supabase.from('chat_messages').insert({
+                group_id: groupId,
+                sender_id: user.id,
+                content: `Shared a file: ${file.name}`,
+                file_url: publicUrl,
+                message_type: isImage ? 'image' : (isPdf ? 'pdf' : 'file')
+            });
+
+            if (msgError) throw msgError;
+
+            // Also add to resources tab
+            await supabase.from('study_resources').insert({
+                group_id: groupId,
+                title: file.name,
+                file_url: publicUrl,
+                file_type: isImage ? 'image' : (isPdf ? 'pdf' : 'file'),
+                uploader_id: user.id
+            });
+
+        } catch (error: any) {
+            alert('Upload failed: ' + error.message);
+        } finally {
+            setIsUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
 
@@ -197,6 +414,26 @@ const StudyHub = () => {
                                 <Plus size={16} /> Requests {requests.length > 0 && <span className="w-5 h-5 flex items-center justify-center bg-red-500 text-white rounded-full text-[10px]">{requests.length}</span>}
                             </button>
                         )}
+                        {isCreator && (
+                            <button
+                                onClick={() => setActiveTab('settings')}
+                                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'settings' ? 'bg-white dark:bg-gray-800 text-forest shadow-sm' : 'text-gray-400'}`}
+                            >
+                                <Settings size={16} /> Settings
+                            </button>
+                        )}
+                        <button
+                            onClick={() => setActiveTab('goals')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'goals' ? 'bg-white dark:bg-gray-800 text-forest shadow-sm' : 'text-gray-400'}`}
+                        >
+                            <Target size={16} /> Goals
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('resources')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'resources' ? 'bg-white dark:bg-gray-800 text-forest shadow-sm' : 'text-gray-400'}`}
+                        >
+                            <FileText size={16} /> Files
+                        </button>
                     </div>
                 </div>
                 <div className="flex-grow overflow-y-auto p-4">
@@ -218,10 +455,19 @@ const StudyHub = () => {
                                         <p className="text-sm font-bold text-dark dark:text-gray-100">{member.profiles?.full_name}</p>
                                         <p className="text-[10px] text-gray-400 capitalize">{member.role || 'Member'}</p>
                                     </div>
+                                    {isCreator && member.user_id !== user?.id && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleRemoveMember(member.user_id); }}
+                                            className="p-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+                                            title="Remove member"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    )}
                                 </div>
                             ))}
                         </div>
-                    ) : (
+                    ) : activeTab === 'requests' ? (
                         <div className="space-y-4">
                             {requests.length > 0 ? requests.map((req, i) => (
                                 <div key={i} className="p-4 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-700 space-y-3">
@@ -259,6 +505,161 @@ const StudyHub = () => {
                                 </div>
                             )}
                         </div>
+                    ) : activeTab === 'goals' ? (
+                        <div className="space-y-6 animate-fade-in">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-sm font-bold text-dark dark:text-white uppercase tracking-wider underline decoration-forest decoration-2 underline-offset-4">Circle Goals</h3>
+                                <span className="text-[10px] bg-forest/10 text-forest px-2 py-1 rounded-full font-bold">{goals.filter(g => g.status === 'completed').length}/{goals.length} Completed</span>
+                            </div>
+
+                            {isCreator && (
+                                <form onSubmit={handleCreateGoal} className="bg-gray-50 dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-700 space-y-3">
+                                    <input
+                                        type="text"
+                                        placeholder="Add a new goal..."
+                                        value={newGoal.title}
+                                        onChange={e => setNewGoal({ ...newGoal, title: e.target.value })}
+                                        className="w-full bg-white dark:bg-gray-800 border-none rounded-xl px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-forest"
+                                    />
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="date"
+                                            value={newGoal.due_date}
+                                            onChange={e => setNewGoal({ ...newGoal, due_date: e.target.value })}
+                                            className="flex-grow bg-white dark:bg-gray-800 border-none rounded-xl px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-forest"
+                                        />
+                                        <button type="submit" className="bg-forest text-white p-2 rounded-xl hover:bg-green-700 transition-colors shadow-lg shadow-green-100">
+                                            <Plus size={18} />
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
+
+                            <div className="space-y-3 pb-6">
+                                {goals.length > 0 ? goals.map((goal, i) => (
+                                    <div key={i} className="group p-4 rounded-2xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm hover:border-forest/50 transition-all cursor-pointer" onClick={() => handleUpdateGoalStatus(goal.id, goal.status === 'completed' ? 'pending' : 'completed')}>
+                                        <div className="flex items-start gap-4">
+                                            <div className={`mt-1 flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${goal.status === 'completed' ? 'bg-forest border-forest text-white' : 'border-gray-200 dark:border-gray-700'}`}>
+                                                {goal.status === 'completed' && <CheckCircle2 size={14} />}
+                                            </div>
+                                            <div className="flex-grow">
+                                                <h4 className={`text-sm font-bold transition-all ${goal.status === 'completed' ? 'text-gray-400 line-through' : 'text-dark dark:text-gray-100'}`}>{goal.title}</h4>
+                                                {goal.due_date && (
+                                                    <p className="text-[10px] text-gray-400 flex items-center gap-1.5 mt-1.5 font-medium">
+                                                        <Clock size={10} /> Deadline: {new Date(goal.due_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${goal.priority === 'high' ? 'bg-red-100 text-red-600' : goal.priority === 'medium' ? 'bg-yellow-100 text-yellow-600' : 'bg-green-100 text-green-600'}`}>
+                                                {goal.priority}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <div className="text-center py-10 opacity-50">
+                                        <Target size={32} className="mx-auto text-gray-300 mb-3" />
+                                        <p className="text-xs text-gray-400">Set circle goals to track progress together!</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ) : activeTab === 'resources' ? (
+                        <div className="space-y-6 animate-fade-in">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-sm font-bold text-dark dark:text-white uppercase tracking-wider underline decoration-forest decoration-2 underline-offset-4">Shared Materials</h3>
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="p-2 bg-forest/10 text-forest rounded-lg hover:bg-forest/20 transition-all"
+                                    title="Upload Material"
+                                >
+                                    <Plus size={16} />
+                                </button>
+                            </div>
+
+                            <div className="space-y-3 pb-6">
+                                {resources.length > 0 ? resources.map((res, i) => (
+                                    <a
+                                        key={i}
+                                        href={res.file_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-4 p-4 rounded-2xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 hover:border-forest/50 hover:shadow-md transition-all group"
+                                    >
+                                        <div className="w-12 h-12 rounded-xl bg-gray-50 dark:bg-gray-900 flex items-center justify-center text-forest group-hover:scale-110 transition-transform">
+                                            {res.file_type === 'pdf' ? <FileText size={24} /> : res.file_type === 'image' ? <ImageIcon size={24} /> : <File size={24} />}
+                                        </div>
+                                        <div className="flex-grow min-w-0">
+                                            <p className="text-sm font-bold text-dark dark:text-white truncate">{res.title}</p>
+                                            <p className="text-[10px] text-gray-400 mt-1">Shared by {res.profiles?.full_name?.split(' ')[0] || 'Member'}</p>
+                                        </div>
+                                        <Download size={18} className="text-gray-300 group-hover:text-forest transition-colors" />
+                                    </a>
+                                )) : (
+                                    <div className="text-center py-10 opacity-50">
+                                        <FileText size={32} className="mx-auto text-gray-300 mb-3" />
+                                        <p className="text-xs text-gray-400">Collaborate by sharing notes & links!</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <form onSubmit={handleUpdateGroup} className="space-y-6 animate-fade-in">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                    <Info size={12} /> Circle Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={editName}
+                                    onChange={e => setEditName(e.target.value)}
+                                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-forest/20 text-sm text-dark dark:text-white"
+                                    placeholder="Enter circle name..."
+                                    required
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                    <Info size={12} /> Description
+                                </label>
+                                <textarea
+                                    value={editDescription}
+                                    onChange={e => setEditDescription(e.target.value)}
+                                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-forest/20 text-sm text-dark dark:text-white h-32 resize-none"
+                                    placeholder="What is this circle about?"
+                                />
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={isSaving}
+                                className="w-full bg-forest text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-green-700 transition-all disabled:opacity-50 shadow-lg shadow-green-100 dark:shadow-none"
+                            >
+                                {isSaving ? <Loader2 className="animate-spin" size={20} /> : <><Save size={18} /> Save Changes</>}
+                            </button>
+
+                            <div className="pt-6 border-t border-gray-100 dark:border-gray-800 space-y-4">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                    <Plus size={12} /> Add Student by USN
+                                </label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={inviteUSN}
+                                        onChange={e => setInviteUSN(e.target.value)}
+                                        className="flex-grow bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-forest/20 text-sm text-dark dark:text-white"
+                                        placeholder="Enter USN (e.g. 1RV21CS001)"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleInvite}
+                                        disabled={isInviting || !inviteUSN.trim()}
+                                        className="bg-dark text-white px-6 rounded-xl font-bold hover:bg-black transition-all disabled:opacity-50 flex items-center justify-center"
+                                    >
+                                        {isInviting ? <Loader2 className="animate-spin" size={20} /> : 'Add'}
+                                    </button>
+                                </div>
+                                <p className="text-[10px] text-gray-400 italic">This will instantly add the student to your circle.</p>
+                            </div>
+                        </form>
                     )}
                 </div>
             </div>
@@ -294,33 +695,72 @@ const StudyHub = () => {
 
                 {/* Messages List */}
                 <div className="flex-grow overflow-y-auto p-6 space-y-6">
-                    {messages.map((msg, i) => {
-                        const isOwn = msg.sender_id === user?.id;
-                        return (
-                            <div key={i} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} animate-fade-in`}>
-                                <div className={`flex gap-3 max-w-[80%] ${isOwn ? 'flex-row-reverse' : ''}`}>
-                                    {!isOwn && (
-                                        <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex-shrink-0 overflow-hidden mt-auto">
-                                            {msg.profiles?.avatar_url ? (
-                                                <img src={msg.profiles.avatar_url} className="w-full h-full object-cover" alt="" />
-                                            ) : (
-                                                <User className="w-full h-full p-1 text-gray-400" />
-                                            )}
+                    {isLoading ? (
+                        <div className="flex flex-col items-center justify-center h-full text-gray-400 space-y-4">
+                            <Loader2 className="animate-spin" size={32} />
+                            <p className="text-sm font-medium">Loading conversation...</p>
+                        </div>
+                    ) : messages.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-zinc-400 space-y-4">
+                            <div className="w-16 h-16 bg-gray-50 dark:bg-gray-800 rounded-full flex items-center justify-center">
+                                <Smile size={32} className="opacity-50" />
+                            </div>
+                            <div className="text-center">
+                                <p className="font-bold">No messages yet</p>
+                                <p className="text-xs">Be the first to say hello!</p>
+                            </div>
+                        </div>
+                    ) : (
+                        messages.filter(msg => msg !== null).map((msg, i) => {
+                            const isOwn = msg.sender_id === user?.id;
+                            return (
+                                <div key={i} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+                                    <div className={`flex gap-3 max-w-[80%] ${isOwn ? 'flex-row-reverse' : ''}`}>
+                                        {!isOwn && (
+                                            <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex-shrink-0 overflow-hidden mt-auto">
+                                                {msg.profiles?.avatar_url ? (
+                                                    <img src={msg.profiles.avatar_url} className="w-full h-full object-cover" alt="" />
+                                                ) : (
+                                                    <User className="w-full h-full p-1 text-gray-400" />
+                                                )}
+                                            </div>
+                                        )}
+                                        <div>
+                                            {!isOwn && <p className="text-[10px] text-gray-400 mb-1 ml-1">{msg.profiles?.full_name}</p>}
+                                            <div className={`p-4 rounded-2xl shadow-sm space-y-3 ${isOwn ? 'bg-forest text-white rounded-tr-none' : 'bg-gray-100 dark:bg-gray-800 text-dark dark:text-gray-100 rounded-tl-none'}`}>
+                                                {msg.message_type === 'image' && (
+                                                    <div className="rounded-lg overflow-hidden border border-white/10">
+                                                        <img src={msg.file_url} className="max-w-full h-auto cursor-pointer hover:scale-105 transition-transform" alt="Shared" onClick={() => window.open(msg.file_url)} />
+                                                    </div>
+                                                )}
+                                                {(msg.message_type === 'file' || msg.message_type === 'pdf') && (
+                                                    <a
+                                                        href={msg.file_url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className={`flex items-center gap-3 p-3 rounded-xl border ${isOwn ? 'bg-white/10 border-white/20' : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700'}`}
+                                                    >
+                                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isOwn ? 'bg-white/20' : 'bg-forest/10 text-forest'}`}>
+                                                            {msg.message_type === 'pdf' ? <FileText size={20} /> : <File size={20} />}
+                                                        </div>
+                                                        <div className="flex-grow min-w-0">
+                                                            <p className="text-xs font-bold truncate">{msg.content.replace('Shared a file: ', '')}</p>
+                                                            <p className={`text-[10px] ${isOwn ? 'text-white/60' : 'text-gray-400'}`}>Click to download</p>
+                                                        </div>
+                                                        <Download size={16} />
+                                                    </a>
+                                                )}
+                                                {msg.message_type === 'text' && <p className="text-sm leading-relaxed">{msg.content}</p>}
+                                            </div>
+                                            <p className={`text-[10px] text-gray-300 mt-1 ${isOwn ? 'text-right' : 'text-left'}`}>
+                                                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </p>
                                         </div>
-                                    )}
-                                    <div>
-                                        {!isOwn && <p className="text-[10px] text-gray-400 mb-1 ml-1">{msg.profiles?.full_name}</p>}
-                                        <div className={`p-4 rounded-2xl shadow-sm ${isOwn ? 'bg-forest text-white rounded-tr-none' : 'bg-gray-100 dark:bg-gray-800 text-dark dark:text-gray-100 rounded-tl-none'}`}>
-                                            <p className="text-sm leading-relaxed">{msg.content}</p>
-                                        </div>
-                                        <p className={`text-[10px] text-gray-300 mt-1 ${isOwn ? 'text-right' : 'text-left'}`}>
-                                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </p>
                                     </div>
                                 </div>
-                            </div>
-                        );
-                    })}
+                            );
+                        })
+                    )}
                     <div ref={scrollRef} />
                 </div>
 
@@ -341,16 +781,26 @@ const StudyHub = () => {
                     </div>
                 )}
 
-                {/* Message Input */}
-                <div className="p-4 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800">
-                    <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-                        <div className="flex items-center gap-1">
-                            <button type="button" className="p-2 text-gray-400 hover:text-forest transition-colors"><Paperclip size={20} /></button>
-                            <button type="button" className="p-2 text-gray-400 hover:text-forest transition-colors"><Smile size={20} /></button>
-                        </div>
-                        <div className="flex-grow flex items-center bg-gray-50 dark:bg-gray-800 rounded-2xl px-4 py-1 border border-gray-100 dark:border-gray-700 focus-within:ring-2 focus-within:ring-forest/20 transition-all">
-                            <input
-                                type="text"
+                {/* Message Input Area */}
+                <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
+                    <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto flex items-end gap-3 bg-gray-50 dark:bg-gray-800 p-2 rounded-2xl relative">
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            className="hidden"
+                            onChange={handleFileUpload}
+                            accept="image/*,.pdf,.doc,.docx"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isUploading}
+                            className="p-3 text-gray-400 hover:text-forest transition-colors flex-shrink-0"
+                        >
+                            {isUploading ? <Loader2 className="animate-spin" size={20} /> : <Paperclip size={20} />}
+                        </button>
+                        <div className="flex-grow min-w-0">
+                            <textarea
                                 value={newMessage}
                                 onChange={e => setNewMessage(e.target.value)}
                                 placeholder="Type your message..."
