@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { vtuBranches, vtuSemesters, vtuSubjects } from '../data/vtuData';
-import { supabase } from '../lib/supabaseClient';
 import { FileText, Download, Upload, Trash2, Loader2, BookOpen } from 'lucide-react';
+import { api } from '../lib/api';
 
 interface Resource {
     id: string;
@@ -23,13 +24,12 @@ const Resources = () => {
     const [uploading, setUploading] = useState(false);
     const [user, setUser] = useState<any>(null);
 
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
     // Fetch user
     useEffect(() => {
-        const getUser = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            setUser(user);
-        };
-        getUser();
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) setUser(JSON.parse(storedUser));
     }, []);
 
     // Update subjects when branch/sem changes
@@ -54,13 +54,7 @@ const Resources = () => {
     const fetchResources = async (subjectCode: string) => {
         setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('resources')
-                .select('*')
-                .eq('subject_code', subjectCode)
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
+            const data = await api.get(`/api/resources?subject_code=${subjectCode}&branch=${selectedBranch}&semester=${selectedSem}`);
             setResources(data || []);
         } catch (error) {
             console.error('Error fetching resources:', error);
@@ -73,36 +67,19 @@ const Resources = () => {
         if (!selectedSubject || !user || !event.target.files || event.target.files.length === 0) return;
 
         const file = event.target.files[0];
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${selectedSubject.code}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}.${fileExt}`;
-        const filePath = fileName;
-
         setUploading(true);
 
         try {
-            // 1. Upload file to storage
-            const { error: uploadError } = await supabase.storage
-                .from('study_materials')
-                .upload(filePath, file);
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('title', file.name);
+            formData.append('subject_code', selectedSubject.code);
+            formData.append('subject_name', selectedSubject.name);
+            formData.append('branch', selectedBranch);
+            formData.append('semester', selectedSem.toString());
+            formData.append('uploaded_by', user.id || user._id);
 
-            if (uploadError) throw uploadError;
-
-            // 2. Add metadata to database
-            const { error: dbError } = await supabase
-                .from('resources')
-                .insert({
-                    title: file.name,
-                    subject_code: selectedSubject.code,
-                    subject_name: selectedSubject.name,
-                    branch: selectedBranch,
-                    semester: selectedSem,
-                    file_path: filePath,
-                    file_type: fileExt,
-                    file_size: file.size,
-                    uploaded_by: user.id
-                });
-
-            if (dbError) throw dbError;
+            await api.upload('/api/resources/upload', formData);
 
             // Refresh list
             fetchResources(selectedSubject.code);
@@ -114,46 +91,22 @@ const Resources = () => {
         }
     };
 
-    const handleDownload = async (filePath: string) => {
-        try {
-            const { data, error } = await supabase.storage
-                .from('study_materials')
-                .createSignedUrl(filePath, 3600); // 1 hour expiry
-
-            if (error) throw error;
-
-            if (data?.signedUrl) {
-                window.open(data.signedUrl, '_blank');
-            }
-        } catch (error: any) {
-            console.error('Error downloading file:', error);
-            alert('Download failed: ' + error.message);
-        }
+    const handleDownload = (filePath: string) => {
+        // Since we serve static files from /uploads, we can just open the absolute URL
+        window.open(`${API_URL}${filePath}`, '_blank');
     };
 
-    const handleDelete = async (resourceId: string, filePath: string) => {
+    const handleDelete = async (resourceId: string) => {
         if (!confirm('Are you sure you want to delete this file?')) return;
 
         try {
-            const { error: storageError } = await supabase.storage
-                .from('study_materials')
-                .remove([filePath]);
-
-            if (storageError) throw storageError;
-
-            const { error: dbError } = await supabase
-                .from('resources')
-                .delete()
-                .eq('id', resourceId);
-
-            if (dbError) throw dbError;
-
+            await api.delete(`/api/resources/${resourceId}`);
             if (selectedSubject) fetchResources(selectedSubject.code);
         } catch (error: any) {
             console.error('Error deleting file:', error);
             alert('Delete failed: ' + error.message);
         }
-    }
+    };
 
     return (
         <div className="flex-grow bg-gray-50 dark:bg-dark-bg transition-colors duration-300">
@@ -286,9 +239,9 @@ const Resources = () => {
                                                     >
                                                         <Download size={20} />
                                                     </button>
-                                                    {user && user.id === resource.uploaded_by && (
+                                                    {user && (user.id === resource.uploaded_by || user._id === resource.uploaded_by) && (
                                                         <button
-                                                            onClick={() => handleDelete(resource.id, resource.file_path)}
+                                                            onClick={() => handleDelete(resource.id)}
                                                             className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                                                             title="Delete"
                                                         >

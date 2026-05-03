@@ -1,8 +1,0 @@
-﻿src/components/Footer.tsx(1,1): error TS6133: 'React' is declared but its value is never read.
-src/lib/supabaseClient.ts(4,33): error TS2339: Property 'env' does not exist on type 'ImportMeta'.
-src/lib/supabaseClient.ts(5,33): error TS2339: Property 'env' does not exist on type 'ImportMeta'.
-src/pages/Schedule.tsx(11,5): error TS6133: 'Lock' is declared but its value is never read.
-src/pages/Schedule.tsx(13,5): error TS6133: 'Check' is declared but its value is never read.
-src/pages/Schedule.tsx(33,12): error TS6133: 'profile' is declared but its value is never read.
-src/pages/StudyHub.tsx(25,5): error TS6133: 'Calendar' is declared but its value is never read.
-src/pages/StudyHub.tsx(29,5): error TS6133: 'AlertCircle' is declared but its value is never read.

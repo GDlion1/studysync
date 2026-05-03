@@ -1,33 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { io, Socket } from 'socket.io-client';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-    Phone,
-    Video,
-    MoreVertical,
-    Send,
-    Mic,
-    Paperclip,
-    Smile,
-    ChevronLeft,
-    Users,
-    Circle,
-    User,
-    X,
-    Plus,
-    Settings,
-    Trash2,
-    Save,
-    Info,
-    Loader2,
-    FileText,
-    Target,
-    Download,
-    CheckCircle2,
-    Clock,
-    File,
-    Image as ImageIcon
+    Phone, Video, MoreVertical, Send, Mic, Paperclip, Smile, ChevronLeft,
+    Users, Circle, User, X, Plus, Settings, Trash2, Save, Info, Loader2,
+    FileText, Target, Download, CheckCircle2, Clock, File, Image as ImageIcon
 } from 'lucide-react';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 const StudyHub = () => {
     const { groupId } = useParams();
@@ -52,107 +32,80 @@ const StudyHub = () => {
     const [resources, setResources] = useState<any[]>([]);
     const [newGoal, setNewGoal] = useState({ title: '', due_date: '', priority: 'medium' });
     const [isUploading, setIsUploading] = useState(false);
+    
+    // WebSockets references
+    const socketRef = useRef<Socket | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Initial Fetching
     useEffect(() => {
-        let channel: any;
+        const storedUser = localStorage.getItem('user');
+        if (!storedUser) {
+            navigate('/signin');
+            return;
+        }
+        const currentUser = JSON.parse(storedUser);
+        setUser(currentUser);
 
         const init = async () => {
             setIsLoading(true);
-            const { data: { user: currentUser } } = await supabase.auth.getUser();
-            setUser(currentUser);
-
-            if (groupId && currentUser) {
-                // Fetch group details
-                const { data: group, error: groupErr } = await supabase.from('groups').select('*').eq('id', groupId).single();
-                if (groupErr || !group) {
-                    console.error('Error fetching group:', groupErr);
-                    setIsLoading(false);
-                    return;
-                }
+            try {
+                // Fetch group info
+                let res = await fetch(`${API_URL}/api/hub/${groupId}/details`);
+                const group = await res.json();
                 setGroupInfo(group);
-                setEditName(group.name);
-                setEditDescription(group.description || '');
+                if(group){
+                    setEditName(group.name);
+                    setEditDescription(group.description || '');
 
-                // Fetch members
-                const { data: mems } = await supabase.from('study_group_members').select('*, profiles(*)').eq('group_id', groupId);
-                setMembers(mems || []);
-
-                // Fetch messages
-                const { data: initialMessages, error: msgErr } = await supabase
-                    .from('chat_messages')
-                    .select('*, profiles!sender_id(full_name, avatar_url)')
-                    .eq('group_id', groupId)
-                    .order('created_at', { ascending: true });
-
-                if (msgErr) {
-                    console.error('Error fetching messages:', msgErr.message);
+                    if (group.admin_id === currentUser.id || group.creator_id === currentUser.id) {
+                        setIsCreator(true);
+                        fetchRequests(groupId!);
+                    }
                 }
-                setMessages(initialMessages || []);
+
+                // Fetch Members
+                res = await fetch(`${API_URL}/api/hub/${groupId}/members`);
+                const membersData = await res.json();
+                setMembers(Array.isArray(membersData) ? membersData : []);
+
+                // Fetch Messages
+                res = await fetch(`${API_URL}/api/hub/${groupId}/messages`);
+                const msgData = await res.json();
+                setMessages(Array.isArray(msgData) ? msgData : []);
+
+                fetchGoals(groupId!);
+                fetchResources(groupId!);
+
+                // Connect to Socket.IO
+                socketRef.current = io(API_URL);
+                socketRef.current.emit('join_room', groupId);
+
+                // Listen for real-time updates
+                socketRef.current.on('receive_message', (data) => {
+                    setMessages((prev) => [...prev, data.message]);
+                });
+
+                socketRef.current.on('refresh_goals', () => {
+                    fetchGoals(groupId!);
+                });
+
+                socketRef.current.on('refresh_resources', () => {
+                    fetchResources(groupId!);
+                });
+
+            } catch (err) {
+                console.error("Failed to load hub data:", err);
+            } finally {
                 setIsLoading(false);
-
-                if (group.creator_id === currentUser.id) {
-                    setIsCreator(true);
-                    fetchRequests(groupId);
-                }
-
-                // Fetch Goals and Resources
-                fetchGoals(groupId);
-                fetchResources(groupId);
-
-                // Subscribe to NEW messages
-                channel = supabase
-                    .channel(`room-${groupId}`)
-                    .on('postgres_changes', {
-                        event: '*',
-                        schema: 'public',
-                        table: 'chat_messages',
-                        filter: `group_id=eq.${groupId}`
-                    }, async (payload: any) => {
-                        if (payload.eventType === 'INSERT') {
-                            const { data: msgWithProfile } = await supabase
-                                .from('chat_messages')
-                                .select('*, profiles!sender_id(full_name, avatar_url)')
-                                .eq('id', payload.new.id)
-                                .single();
-
-                            if (msgWithProfile) {
-                                setMessages(prev => {
-                                    if (prev.some(m => m.id === msgWithProfile.id)) return prev;
-                                    return [...prev, msgWithProfile];
-                                });
-                            }
-                        }
-                    })
-                    .on('postgres_changes', {
-                        event: '*',
-                        schema: 'public',
-                        table: 'group_goals',
-                        filter: `group_id=eq.${groupId}`
-                    }, () => fetchGoals(groupId))
-                    .on('postgres_changes', {
-                        event: '*',
-                        schema: 'public',
-                        table: 'study_resources',
-                        filter: `group_id=eq.${groupId}`
-                    }, () => fetchResources(groupId))
-                    .on('postgres_changes', {
-                        event: 'INSERT',
-                        schema: 'public',
-                        table: 'group_requests',
-                        filter: `group_id=eq.${groupId}`
-                    }, () => {
-                        if (group.creator_id === currentUser.id) fetchRequests(groupId);
-                    })
-                    .subscribe();
             }
         };
 
-        init();
+        if (groupId) init();
 
         return () => {
-            if (channel) supabase.removeChannel(channel);
+            if (socketRef.current) socketRef.current.disconnect();
         };
     }, [groupId]);
 
@@ -164,94 +117,53 @@ const StudyHub = () => {
         e.preventDefault();
         if (!newMessage.trim() || !user || !groupId) return;
 
-        const { error } = await supabase
-            .from('chat_messages')
-            .insert({
-                group_id: groupId,
-                sender_id: user!.id,
-                content: newMessage,
-                message_type: 'text'
+        try {
+            const res = await fetch(`${API_URL}/api/hub/${groupId}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sender_id: user.id || user._id, content: newMessage, message_type: 'text' })
             });
 
-        if (error) {
-            alert('Failed to send: ' + error.message);
-        } else {
+            const data = await res.json();
+            socketRef.current?.emit('send_message', { room: groupId, message: data });
             setNewMessage('');
+        } catch (error: any) {
+            alert('Failed to send: ' + error.message);
         }
     };
 
     const fetchRequests = async (id: string) => {
-        const { data } = await supabase
-            .from('group_requests')
-            .select('*, profiles(*)')
-            .eq('group_id', id)
-            .eq('status', 'pending');
-        setRequests(data || []);
+        try {
+            const res = await fetch(`${API_URL}/api/hub/${id}/requests`);
+            const requestsData = await res.json();
+            setRequests(Array.isArray(requestsData) ? requestsData : []);
+        } catch(e) {}
     };
 
-    const handleRequest = async (requestId: string, userId: string, status: 'approved' | 'rejected') => {
-        try {
-            const { error: updateError } = await supabase
-                .from('group_requests')
-                .update({ status })
-                .eq('id', requestId);
-
-            if (updateError) throw updateError;
-
-            if (status === 'approved') {
-                const { error: joinError } = await supabase
-                    .from('study_group_members')
-                    .insert({ group_id: groupId, user_id: userId });
-
-                if (joinError) throw joinError;
-
-                // Refresh members
-                const { data: mems } = await supabase.from('study_group_members').select('*, profiles(*)').eq('group_id', groupId);
-                setMembers(mems || []);
-            }
-
-            setRequests(prev => prev.filter(r => r.id !== requestId));
-        } catch (error: any) {
-            alert(error.message);
-        }
+    const handleRequest = async (_requestId: string, _userId: string, _status: 'approved' | 'rejected') => {
+        alert("Requests logic can be added later in backend.");
     };
 
     const handleRemoveMember = async (userId: string) => {
         if (!window.confirm('Are you sure you want to remove this student?')) return;
-
         try {
-            const { error } = await supabase
-                .from('study_group_members')
-                .delete()
-                .eq('group_id', groupId)
-                .eq('user_id', userId);
-
-            if (error) throw error;
-
+            await fetch(`${API_URL}/api/hub/${groupId}/members/${userId}`, { method: 'DELETE' });
             setMembers(prev => prev.filter(m => m.user_id !== userId));
-        } catch (error: any) {
-            alert('Failed to remove member: ' + error.message);
-        }
+        } catch (error: any) { alert(error.message); }
     };
 
     const handleUpdateGroup = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSaving(true);
         try {
-            const { error } = await supabase
-                .from('groups')
-                .update({ name: editName, description: editDescription })
-                .eq('id', groupId);
-
-            if (error) throw error;
-
+            await fetch(`${API_URL}/api/hub/${groupId}/details`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: editName, description: editDescription })
+            });
             setGroupInfo((prev: any) => ({ ...prev, name: editName, description: editDescription }));
             alert('Circle details updated!');
-        } catch (error: any) {
-            alert('Update failed: ' + error.message);
-        } finally {
-            setIsSaving(false);
-        }
+        } catch (error: any) { alert(error.message); } finally { setIsSaving(false); }
     };
 
     const handleInvite = async (e: React.FormEvent) => {
@@ -259,67 +171,60 @@ const StudyHub = () => {
         if (!inviteUSN.trim()) return;
         setIsInviting(true);
         try {
-            // Find user by USN
-            const { data: targetUser, error: findError } = await supabase
-                .from('profiles')
-                .select('id, full_name')
-                .eq('usn', inviteUSN.trim())
-                .single();
+            const res = await fetch(`${API_URL}/api/hub/${groupId}/invite`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ usn: inviteUSN.trim() })
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
 
-            if (findError || !targetUser) throw new Error('Student with this USN not found.');
-
-            // Check if already a member
-            const isAlreadyMember = members.some(m => m.user_id === targetUser.id);
-            if (isAlreadyMember) throw new Error('Student is already in this circle.');
-
-            // Add to members
-            const { error: addError } = await supabase
-                .from('study_group_members')
-                .insert({ group_id: groupId, user_id: targetUser.id });
-
-            if (addError) throw addError;
-
-            // Refresh members
-            const { data: mems } = await supabase.from('study_group_members').select('*, profiles(*)').eq('group_id', groupId);
-            setMembers(mems || []);
+            alert('Added to the circle!');
+            const mRes = await fetch(`${API_URL}/api/hub/${groupId}/members`);
+            setMembers(await mRes.json());
             setInviteUSN('');
-            alert(`${targetUser.full_name} added to the circle!`);
-        } catch (error: any) {
-            alert(error.message);
-        } finally {
-            setIsInviting(false);
-        }
+        } catch (error: any) { alert(error.message); } finally { setIsInviting(false); }
     };
 
     const fetchGoals = async (id: string) => {
-        const { data } = await supabase.from('group_goals').select('*').eq('group_id', id).order('due_date', { ascending: true });
-        setGoals(data || []);
+        try {
+            const res = await fetch(`${API_URL}/api/hub/${id}/goals`);
+            const goalsData = await res.json();
+            setGoals(Array.isArray(goalsData) ? goalsData : []);
+        }catch(e){}
     };
 
     const fetchResources = async (id: string) => {
-        const { data } = await supabase.from('study_resources').select('*, profiles(full_name)').eq('group_id', id).order('created_at', { ascending: false });
-        setResources(data || []);
+        try {
+            const res = await fetch(`${API_URL}/api/hub/${id}/resources`);
+            const resData = await res.json();
+            setResources(Array.isArray(resData) ? resData : []);
+        }catch(e){}
     };
 
     const handleCreateGoal = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newGoal.title || !user) return;
-
-        const { error } = await supabase.from('group_goals').insert({
-            group_id: groupId,
-            title: newGoal.title,
-            due_date: newGoal.due_date || null,
-            priority: newGoal.priority,
-            created_by: user.id
+        
+        await fetch(`${API_URL}/api/hub/${groupId}/goals`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...newGoal, created_by: user.id || user._id })
         });
-
-        if (error) alert(error.message);
-        else setNewGoal({ title: '', due_date: '', priority: 'medium' });
+        
+        setNewGoal({ title: '', due_date: '', priority: 'medium' });
+        socketRef.current?.emit('goal_updated', { room: groupId });
+        fetchGoals(groupId!);
     };
 
     const handleUpdateGoalStatus = async (goalId: string, status: string) => {
-        const { error } = await supabase.from('group_goals').update({ status }).eq('id', goalId);
-        if (error) alert(error.message);
+        await fetch(`${API_URL}/api/hub/${groupId}/goals/${goalId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+        });
+        socketRef.current?.emit('goal_updated', { room: groupId });
+        fetchGoals(groupId!);
     };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -328,54 +233,41 @@ const StudyHub = () => {
 
         setIsUploading(true);
         try {
-            const fileExt = file.name.split('.').pop();
-            const fileName = `${Math.random()}.${fileExt}`;
-            const filePath = `${groupId}/${fileName}`;
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('uploader_id', user.id || user._id);
 
-            const { error: uploadError } = await supabase.storage
-                .from('resources')
-                .upload(filePath, file);
-
-            if (uploadError) throw uploadError;
-
-            const { data: { publicUrl } } = supabase.storage
-                .from('resources')
-                .getPublicUrl(filePath);
-
-            // Send as chat message attachment
-            const isImage = ['jpg', 'jpeg', 'png', 'gif'].includes(fileExt?.toLowerCase() || '');
-            const isPdf = fileExt?.toLowerCase() === 'pdf';
-
-            const { error: msgError } = await supabase.from('chat_messages').insert({
-                group_id: groupId,
-                sender_id: user.id,
-                content: `Shared a file: ${file.name}`,
-                file_url: publicUrl,
-                message_type: isImage ? 'image' : (isPdf ? 'pdf' : 'file')
+            const uploadRes = await fetch(`${API_URL}/api/hub/${groupId}/resources`, {
+                method: 'POST',
+                body: formData
             });
-
-            if (msgError) throw msgError;
-
-            // Also add to resources tab
-            await supabase.from('study_resources').insert({
-                group_id: groupId,
-                title: file.name,
-                file_url: publicUrl,
-                file_type: isImage ? 'image' : (isPdf ? 'pdf' : 'file'),
-                uploader_id: user.id
+            
+            const uploadedFile = await uploadRes.json();
+            
+            // Also send as chat message
+            const msgRes = await fetch(`${API_URL}/api/hub/${groupId}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sender_id: user.id || user._id, 
+                    content: `Shared a file: ${file.name}`,
+                    message_type: uploadedFile.file_type,
+                    file_url: uploadedFile.file_url
+                })
             });
-
-        } catch (error: any) {
-            alert('Upload failed: ' + error.message);
-        } finally {
+            
+            const data = await msgRes.json();
+            socketRef.current?.emit('send_message', { room: groupId, message: data });
+            socketRef.current?.emit('resource_uploaded', { room: groupId });
+            
+            fetchResources(groupId);
+        } catch (error: any) { alert(error.message); } finally {
             setIsUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
 
-    const toggleCall = () => {
-        setIsCalling(!isCalling);
-    };
+    const toggleCall = () => setIsCalling(!isCalling);
 
     return (
         <div className="flex-grow flex h-[calc(100vh-64px)] bg-gray-50 dark:bg-dark-bg transition-colors relative overflow-hidden">

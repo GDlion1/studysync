@@ -136,9 +136,46 @@ router.post('/google', async (req, res) => {
       message: 'Google login successful!',
     });
   } catch (error) {
-    console.error('Google Auth Error:', error);
-    res.status(401).json({ error: 'Google authentication failed' });
+    console.error('Google Auth Error Details:', {
+      message: error.message,
+      stack: error.stack,
+      clientIdInEnv: process.env.GOOGLE_CLIENT_ID
+    });
+    res.status(401).json({ error: 'Google authentication failed', details: error.message });
+  }
+});
+
+
+// ---------------------------------------------
+// GET /api/auth/profile/:userId
+// Fetch profile for a specific user ID
+// ---------------------------------------------
+router.get('/profile/:userId', async (req, res) => {
+  try {
+    const profile = await Profile.findOne({ user_id: req.params.userId });
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
+    res.json(profile);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ---------------------------------------------
+// PUT /api/auth/profile/:userId
+// Update profile for a specific user ID
+// ---------------------------------------------
+router.put('/profile/:userId', async (req, res) => {
+  try {
+    const profile = await Profile.findOneAndUpdate(
+      { user_id: req.params.userId },
+      { $set: req.body },
+      { new: true, upsert: true }
+    );
+    res.json(profile);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
 export default router;
+

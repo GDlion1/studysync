@@ -1,6 +1,6 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { vtuBranches, vtuSemesters, vtuSubjects } from '../data/vtuData';
-import { supabase } from '../lib/supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import {
     Calendar as CalendarIcon,
@@ -18,6 +18,7 @@ import {
     ExternalLink,
     Volume2
 } from 'lucide-react';
+import { api } from '../lib/api';
 
 const Schedule = () => {
     const navigate = useNavigate();
@@ -50,18 +51,25 @@ const Schedule = () => {
 
     useEffect(() => {
         const init = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            setUser(user);
-            if (user) {
-                const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+            const storedUser = localStorage.getItem('user');
+            if (!storedUser) {
+                navigate('/signin');
+                return;
+            }
+            const parsedUser = JSON.parse(storedUser);
+            setUser(parsedUser);
 
+            // Fetch profile for branch/sem
+            try {
+                const prof = await api.get(`/api/auth/profile/${parsedUser.id || parsedUser._id}`);
                 if (prof) {
                     setSelectedBranch(prof.branch || 'CSE');
-                    setSelectedSem(prof.semester || 3);
+                    setSelectedSem(Number(prof.semester) || 3);
                 }
-                fetchGroups(user.id);
-                fetchSessions();
-            }
+            } catch (e) {}
+
+            fetchGroups(parsedUser.id || parsedUser._id);
+            fetchSessions(parsedUser.id || parsedUser._id);
         };
         init();
 
@@ -115,36 +123,36 @@ const Schedule = () => {
     };
 
     const fetchGroups = async (userId: string) => {
-        const { data } = await supabase
-            .from('study_group_members')
-            .select('group_id, groups(id, name, type)')
-            .eq('user_id', userId);
-        if (data) {
-            setUserGroups(data.map(d => d.groups));
-        }
+        try {
+            const data = await api.get(`/api/schedule/memberships/${userId}`);
+            setUserGroups(data);
+        } catch (e) {}
     };
 
-    const fetchSessions = async () => {
+    const fetchSessions = async (userId: string) => {
         setLoading(true);
-        const { data } = await supabase
-            .from('study_sessions')
-            .select('*, groups(name, type, subject_code)')
-            .order('start_time', { ascending: true });
-
-        if (data) {
+        try {
+            const data = await api.get('/api/schedule');
+            
             const userBranchSubjects = vtuSubjects[selectedBranch]?.[selectedSem] || [];
             const userSubjectCodes = userBranchSubjects.map(s => s.code);
 
             // Filter your sessions vs suggestions
-            const userSessions = data.filter(s => s.groups && userGroups.some(ug => ug.id === s.group_id));
-            const suggestions = data.filter(s => !userSessions.includes(s) && (
-                !s.group_id || userSubjectCodes.includes(s.groups?.subject_code)
-            ));
+            const userSessions = data.filter((s: any) => 
+                (s.group_id && userGroups.some(ug => ug.id === s.group_id)) || 
+                s.created_by === userId
+            );
+            
+            const suggestions = data.filter((s: any) => 
+                !userSessions.some((us: any) => us.id === s.id) && 
+                (!s.groups || userSubjectCodes.includes(s.groups.subject_code))
+            );
 
             setSessions(userSessions);
             setSuggestedSessions(suggestions);
+        } catch (e) {} finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const handleCreateSession = async (e: React.FormEvent) => {
@@ -156,21 +164,17 @@ const Schedule = () => {
             const startStr = `${newSession.date}T${newSession.start_time}:00`;
             const endStr = `${newSession.date}T${newSession.end_time}:00`;
 
-            const { error } = await supabase
-                .from('study_sessions')
-                .insert({
-                    title: newSession.title,
-                    group_id: newSession.group_id || null,
-                    start_time: startStr,
-                    end_time: endStr,
-                    session_type: newSession.session_type,
-                    created_by: user.id
-                });
-
-            if (error) throw error;
+            await api.post('/api/schedule', {
+                title: newSession.title,
+                group_id: newSession.group_id || null,
+                start_time: startStr,
+                end_time: endStr,
+                session_type: newSession.session_type,
+                created_by: user.id || user._id
+            });
 
             setShowModal(false);
-            fetchSessions();
+            fetchSessions(user.id || user._id);
         } catch (error: any) {
             alert('Error creating session: ' + error.message);
         } finally {

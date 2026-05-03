@@ -1,8 +1,8 @@
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient';
 import { Link, useNavigate } from 'react-router-dom';
 import { User, BookOpen, MapPin, Globe, Edit3, LogOut, Hash } from 'lucide-react';
+import { api } from '../lib/api';
 
 const Profile = () => {
     const navigate = useNavigate();
@@ -12,26 +12,25 @@ const Profile = () => {
     useEffect(() => {
         const getProfile = async () => {
             try {
-                const { data: { user } } = await supabase.auth.getUser();
-
-                if (!user) {
+                const storedUser = localStorage.getItem('user');
+                if (!storedUser) {
                     navigate('/signin');
                     return;
                 }
+                const user = JSON.parse(storedUser);
 
-                const { data, error } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', user.id)
-                    .single();
-
-                if (error) {
-                    console.error('Error fetching profile:', error);
+                // Try to get fresh profile data from backend
+                try {
+                    const data = await api.get(`/api/auth/profile/${user.id || user._id}`);
+                    setProfile(data);
+                    // Update localStorage with fresh data
+                    localStorage.setItem('user', JSON.stringify({ ...user, ...data }));
+                } catch (err) {
+                    console.error('Failed to fetch profile from API, using local:', err);
+                    setProfile(user);
                 }
-
-                setProfile(data || {});
             } catch (error) {
-                console.error('Error:', error);
+                console.error('Error in profile load:', error);
             } finally {
                 setLoading(false);
             }
@@ -40,10 +39,12 @@ const Profile = () => {
         getProfile();
     }, [navigate]);
 
-    const handleSignOut = async () => {
-        await supabase.auth.signOut();
+    const handleSignOut = () => {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
         navigate('/');
     };
+
 
     if (loading) {
         return (

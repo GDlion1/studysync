@@ -47,7 +47,7 @@ const SignIn = () => {
             localStorage.setItem('user', JSON.stringify({ id: data._id, email: data.email, ...data.profile }));
 
             // Redirect on success
-            navigate('/study-hub'); 
+            navigate('/find-groups'); 
         } catch (err: any) {
             setError(err.message);
         } finally {
@@ -79,7 +79,7 @@ const SignIn = () => {
             localStorage.setItem('token', data.token);
             localStorage.setItem('user', JSON.stringify({ id: data._id, email: data.email, ...data.profile }));
 
-            navigate('/study-hub');
+            navigate('/find-groups');
         } catch (err: any) {
             setError(err.message);
         } finally {
@@ -183,10 +183,8 @@ const SignIn = () => {
                         <GoogleLogin
                             onSuccess={handleGoogleSuccess}
                             onError={handleGoogleError}
-                            useOneTap
                             theme="filled_blue"
                             shape="rectangular"
-                            width="100%"
                         />
                     </div>
                 </form>
@@ -194,7 +192,7 @@ const SignIn = () => {
                 <p className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
                     {isSignUp ? "Already have an account? " : "Don't have an account? "}
                     <button 
-                        onClick={() => setIsSignUp(!isSignUp)}
+                        onClick={() => { setIsSignUp(!isSignUp); setError(null); }}
                         className="text-forest dark:text-neon font-medium hover:underline bg-transparent border-none p-0 cursor-pointer"
                     >
                         {isSignUp ? 'Sign in instead' : 'Sign up for free'}
