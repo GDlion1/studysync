@@ -28,7 +28,7 @@ export const Group = mongoose.model('Group', groupSchema);
 
 // ─── GroupMember ──────────────────────────────────────────────────────────────
 const groupMemberSchema = new mongoose.Schema({
-  group_id:   { type: String, required: true },
+  group_id:   { type: mongoose.Schema.Types.ObjectId, ref: 'Group', required: true },
   user_id:    { type: mongoose.Schema.Types.ObjectId, ref: 'Profile' },
   role:       { type: String, default: 'member' },
   joined_at:  { type: Date, default: Date.now },

@@ -6,8 +6,7 @@ import {
     Users, Circle, User, X, Plus, Settings, Trash2, Save, Info, Loader2,
     FileText, Target, Download, CheckCircle2, Clock, File, Image as ImageIcon
 } from 'lucide-react';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+import { API_URL } from '../lib/api';
 
 const StudyHub = () => {
     const { groupId } = useParams();

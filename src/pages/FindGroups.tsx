@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { vtuBranches, vtuSemesters, vtuSubjects } from '../data/vtuData';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Users, Lock, MessageSquare, Plus, Globe, Languages } from 'lucide-react';
+import { API_URL } from '../lib/api';
 
 const FindGroups = () => {
     const navigate = useNavigate();
@@ -27,7 +28,6 @@ const FindGroups = () => {
                 setProfile(parsedUser); // Since we attached profile inside 'user' earlier
 
                 try {
-                    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
                     const response = await fetch(`${API_URL}/api/groups/memberships/${parsedUser.id}`);
                     const memberships = await response.json();
                     if (memberships) {
@@ -61,7 +61,6 @@ const FindGroups = () => {
 
     const fetchPrivateGroups = async () => {
         try {
-            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
             const response = await fetch(`${API_URL}/api/groups?type=private`);
             const data = await response.json();
             
@@ -82,7 +81,6 @@ const FindGroups = () => {
         setJoining(subject.code);
 
         try {
-            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
             const response = await fetch(`${API_URL}/api/groups/join`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -110,7 +108,6 @@ const FindGroups = () => {
         setJoining(groupId);
 
         try {
-            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
             const response = await fetch(`${API_URL}/api/groups/request`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

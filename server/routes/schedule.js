@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { StudySession, GroupMember, Group } from '../models.js';
+import { StudySession, GroupMember, Group, Profile } from '../models.js';
 
 const router = express.Router();
 
@@ -34,8 +34,19 @@ router.get('/', async (req, res) => {
 // 2. Fetch User Memberships for Groups
 router.get('/memberships/:userId', async (req, res) => {
     try {
-        const memberships = await GroupMember.find({ user_id: req.params.userId }).populate('group_id');
-        res.json(memberships.map(m => m.group_id));
+        const profile = await Profile.findOne({ user_id: req.params.userId });
+        if (!profile) return res.json([]);
+        
+        const memberships = await GroupMember.find({ user_id: profile._id }).populate('group_id');
+        const formatted = memberships
+            .filter(m => m.group_id)
+            .map(m => ({
+                id: m.group_id._id,
+                name: m.group_id.name,
+                type: m.group_id.type,
+                subject_code: m.group_id.subject_code
+            }));
+        res.json(formatted);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

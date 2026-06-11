@@ -52,11 +52,17 @@
     ```
 
 3.  **Environment Variables**:
-    Create a `.env` file in the root directory and add your Supabase credentials:
+    Create a `.env` file in the root directory and add your Supabase credentials plus a valid Google OAuth client ID and backend URL:
     ```env
     VITE_SUPABASE_URL=your_supabase_url
     VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+    VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id
+    VITE_API_URL=https://your-backend.example.com
     ```
+
+    Make sure your Google Cloud OAuth client has `http://localhost:5173` registered as an authorized JavaScript origin for local dev and `https://studysync-ten-xi.vercel.app` for your deployed site.
+
+    In production (Vercel), also add the same values under Environment Variables so the build can access them.
 
 4.  **Database Setup**:
     Run the `.sql` migration files located in the root directory inside your **Supabase SQL Editor**:

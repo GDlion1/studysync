@@ -18,12 +18,36 @@ dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
+
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || process.env.FRONTEND_ORIGIN || 'http://localhost:3000,http://localhost:5173')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS origin denied: ${origin}`));
+    }
+  },
+  credentials: true,
+};
+
 const io = new Server(httpServer, {
-  cors: { origin: '*', methods: ['GET', 'POST'] }
+  cors: { origin: allowedOrigins.length > 0 ? allowedOrigins : '*', methods: ['GET', 'POST'] }
 });
 
-app.use(cors());
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(express.json());
+
+// Fix for Google Auth COOP issues
+app.use((req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  next();
+});
 
 // Set up static uploads folder (for Multer)
 import { fileURLToPath } from 'url';
@@ -108,9 +132,12 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-if (process.env.NODE_ENV !== 'production') {
-  const PORT = process.env.PORT || 5000;
-  // Make sure we use httpServer.listen, not app.listen!
+// Local listener
+const PORT = process.env.PORT || 5000;
+
+// In serverless environments like Vercel, .listen() is handled by the platform.
+// We only call it if we are running the process directly.
+if (import.meta.url === `file://${process.argv[1]}` || process.env.NODE_ENV !== 'production') {
   httpServer.listen(PORT, () => console.log(`🚀 Server and WebSockets running on port ${PORT}`));
 }
 

@@ -33,7 +33,9 @@ router.get('/', async (req, res) => {
 // 2. Fetch User Memberships
 router.get('/memberships/:userId', async (req, res) => {
     try {
-        const memberships = await GroupMember.find({ user_id: req.params.userId });
+        const profile = await Profile.findOne({ user_id: req.params.userId });
+        if (!profile) return res.json([]);
+        const memberships = await GroupMember.find({ user_id: profile._id });
         res.json(memberships);
     } catch (err) {
         res.status(500).json({ error: 'Server error' });
@@ -44,10 +46,12 @@ router.get('/memberships/:userId', async (req, res) => {
 router.post('/join', async (req, res) => {
     try {
         const { groupId, userId } = req.body;
+        const profile = await Profile.findOne({ user_id: userId });
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
         
-        const exists = await GroupMember.findOne({ group_id: groupId, user_id: userId });
+        const exists = await GroupMember.findOne({ group_id: groupId, user_id: profile._id });
         if (!exists) {
-            await GroupMember.create({ group_id: groupId, user_id: userId });
+            await GroupMember.create({ group_id: groupId, user_id: profile._id });
         }
         res.status(200).json({ success: true });
     } catch (err) {
@@ -70,6 +74,8 @@ router.post('/request', async (req, res) => {
 router.post('/', async (req, res) => {
     try {
         const { name, description, type, creator_id, mother_tongue, subject_code } = req.body;
+        const profile = await Profile.findOne({ user_id: creator_id });
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
         
         // Create the group mapped to Mongoose Schema
         const newGroup = await Group.create({
@@ -78,13 +84,13 @@ router.post('/', async (req, res) => {
             type,
             mother_tongue,
             subject_code,
-            admin_id: creator_id
+            admin_id: profile._id
         });
         
         // Auto-add the creator to the group members
         await GroupMember.create({
             group_id: newGroup._id,
-            user_id: creator_id,
+            user_id: profile._id,
         });
 
         res.status(201).json(newGroup);

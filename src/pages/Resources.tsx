@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { vtuBranches, vtuSemesters, vtuSubjects } from '../data/vtuData';
 import { FileText, Download, Upload, Trash2, Loader2, BookOpen } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, API_URL } from '../lib/api';
 
 interface Resource {
     id: string;
@@ -23,8 +23,6 @@ const Resources = () => {
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [user, setUser] = useState<any>(null);
-
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
     // Fetch user
     useEffect(() => {

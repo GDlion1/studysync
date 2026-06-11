@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
+import { API_URL } from '../lib/api';
 
 const SignIn = () => {
     const navigate = useNavigate();
@@ -21,7 +22,6 @@ const SignIn = () => {
             setLoading(true);
             setError(null);
 
-            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
             const url = isSignUp 
                 ? `${API_URL}/api/auth/signup` 
                 : `${API_URL}/api/auth/login`;
@@ -60,7 +60,6 @@ const SignIn = () => {
             setLoading(true);
             setError(null);
 
-            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
             const response = await fetch(`${API_URL}/api/auth/google`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -92,8 +91,8 @@ const SignIn = () => {
     };
 
     return (
-        <div className="flex-grow flex items-center justify-center bg-gray-50 dark:bg-dark-bg py-12 px-4 transition-colors duration-300">
-            <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 p-8 animate-fade-in">
+        <div className="flex-grow flex bg-gray-50 dark:bg-dark-bg py-12 px-4 transition-colors duration-300">
+            <div className="max-w-md w-full m-auto bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 p-8 animate-fade-in">
                 <div className="text-center mb-8">
                     <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-forest to-neon text-white font-bold text-xl mb-4">
                         S

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Lock, FileText, ChevronRight, Loader2, Languages, Laptop } from 'lucide-react';
+import { API_URL } from '../lib/api';
 
 const CreateGroup = () => {
     const navigate = useNavigate();
@@ -31,7 +32,6 @@ const CreateGroup = () => {
         setLoading(true);
 
         try {
-            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
             const response = await fetch(`${API_URL}/api/groups`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -50,8 +50,9 @@ const CreateGroup = () => {
                 throw new Error(errData.error || 'Failed to create group');
             }
 
-            // Immediately navigate after creation
-            navigate('/find-groups');
+            const newGroup = await response.json();
+            // Immediately navigate to the group's chat room after creation
+            navigate(`/chat/${newGroup._id || newGroup.id}`);
         } catch (error: any) {
             alert('Error creating group: ' + error.message);
         } finally {

@@ -46,9 +46,14 @@ const App = () => {
 const container = document.getElementById('root');
 if (container) {
     const root = createRoot(container);
-    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '1234567890-moco.apps.googleusercontent.com'; // User needs to replace this
+    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+    if (!googleClientId) {
+        console.error('Missing VITE_GOOGLE_CLIENT_ID. Create a .env file with a valid Google OAuth client ID and restart the dev server.');
+    }
+
     root.render(
-        <GoogleOAuthProvider clientId={googleClientId}>
+        <GoogleOAuthProvider clientId={googleClientId ?? ''}>
             <App />
         </GoogleOAuthProvider>
     );
