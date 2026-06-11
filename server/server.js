@@ -138,7 +138,7 @@ const PORT = process.env.PORT || 5000;
 // In serverless environments like Vercel, .listen() is handled by the platform.
 // We only call it if we are running the process directly.
 if (import.meta.url === `file://${process.argv[1]}` || process.env.NODE_ENV !== 'production') {
-  httpServer.listen(PORT, () => console.log(`🚀 Server and WebSockets running on port ${PORT}`));
+  httpServer.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server and WebSockets running on port ${PORT}`));
 }
 
 export default app;
