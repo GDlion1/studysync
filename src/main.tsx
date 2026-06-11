@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { GoogleOAuthProvider } from '@react-oauth/google';
 import './index.css';
 import { createRoot } from 'react-dom/client';
 import { HashRouter as Router, Routes, Route } from 'react-router-dom';
@@ -46,15 +45,7 @@ const App = () => {
 const container = document.getElementById('root');
 if (container) {
     const root = createRoot(container);
-    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-
-    if (!googleClientId) {
-        console.error('Missing VITE_GOOGLE_CLIENT_ID. Create a .env file with a valid Google OAuth client ID and restart the dev server.');
-    }
-
     root.render(
-        <GoogleOAuthProvider clientId={googleClientId ?? ''}>
-            <App />
-        </GoogleOAuthProvider>
+        <App />
     );
 }

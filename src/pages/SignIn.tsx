@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GoogleLogin } from '@react-oauth/google';
 import { API_URL } from '../lib/api';
 
 const SignIn = () => {
@@ -53,41 +52,6 @@ const SignIn = () => {
         } finally {
             setLoading(false);
         }
-    };
-
-    const handleGoogleSuccess = async (credentialResponse: any) => {
-        try {
-            setLoading(true);
-            setError(null);
-
-            const response = await fetch(`${API_URL}/api/auth/google`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    credential: credentialResponse.credential,
-                    clientId: credentialResponse.clientId
-                })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.error || 'Google Authentication failed');
-            }
-
-            localStorage.setItem('token', data.token);
-            localStorage.setItem('user', JSON.stringify({ id: data._id, email: data.email, ...data.profile }));
-
-            navigate('/find-groups');
-        } catch (err: any) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleGoogleError = () => {
-        setError('Google Sign-In failed. Please try again.');
     };
 
     return (
@@ -168,24 +132,6 @@ const SignIn = () => {
                     >
                         {loading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Sign In')}
                     </button>
-                    
-                    <div className="relative my-6">
-                        <div className="absolute inset-0 flex items-center">
-                            <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
-                        </div>
-                        <div className="relative flex justify-center text-sm">
-                            <span className="px-2 bg-white dark:bg-gray-800 text-gray-500">Or continue with</span>
-                        </div>
-                    </div>
-
-                    <div className="flex justify-center w-full">
-                        <GoogleLogin
-                            onSuccess={handleGoogleSuccess}
-                            onError={handleGoogleError}
-                            theme="filled_blue"
-                            shape="rectangular"
-                        />
-                    </div>
                 </form>
 
                 <p className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">

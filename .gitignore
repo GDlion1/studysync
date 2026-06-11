@@ -35,3 +35,15 @@ server/.env
 # Temp files
 tmp/
 build_error.log
+
+# Django SQLite database files
+*.sqlite3
+db.sqlite3
+server/db.sqlite3
+
+# Python bytecode and cache files
+__pycache__/
+*.pyc
+server/__pycache__/
+server/api/__pycache__/
+server/server/__pycache__/
